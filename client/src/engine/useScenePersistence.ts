@@ -43,7 +43,7 @@ export function useScenePersistence() {
   } = useEngineStore();
 
   /** Save the current scene to the database (create or update) */
-  const saveToDb = useCallback(async (): Promise<string | null> => {
+  const saveToDb = useCallback(async (isPublic = false): Promise<string | null> => {
     setIsSaving(true);
     try {
       const sceneData: SceneSaveData = {
@@ -76,6 +76,7 @@ export function useScenePersistence() {
           name: sceneName,
           sceneData,
           physicsSettings: { gravity: physicsGravity, timestep: physicsTimestep },
+          isPublic,
           thumbnailUrl,
         });
         savedId = result?.sceneId ?? currentSceneId;
@@ -86,7 +87,7 @@ export function useScenePersistence() {
           name: sceneName,
           sceneData,
           physicsSettings: { gravity: physicsGravity, timestep: physicsTimestep },
-          isPublic: false,
+          isPublic,
           thumbnailUrl,
         });
         savedId = result?.sceneId ?? null;

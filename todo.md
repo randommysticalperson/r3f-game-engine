@@ -10,4 +10,4 @@
 - [x] Manus OAuth login + per-user scene ownership (UserButton in Toolbar)
 
 ## Pending Enhancements
-- [ ] Add isPublic toggle in the File > Save dialog so users can mark scenes public/private
+- [x] Add isPublic toggle in the File > Save dialog so users can mark scenes public/private

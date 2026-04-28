@@ -167,10 +167,10 @@ export default function Toolbar() {
   const isEditor = mode === 'editor';
 
   const [editingName, setEditingName] = useState(false);
-
+  const [isPublicScene, setIsPublicScene] = useState(false);
   // --- Database save ---
   const handleSaveToDb = async () => {
-    const id = await saveToDb();
+    const id = await saveToDb(isPublicScene);
     if (id) {
       toast.success(`Scene "${sceneName}" saved to database`, {
         description: `Scene ID: ${id}`,
@@ -237,6 +237,28 @@ export default function Toolbar() {
             {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Database size={11} />}
             {currentSceneId ? 'Save to DB (Update)' : 'Save to DB (New)'}
           </DropdownMenuItem>
+          {/* isPublic toggle */}
+          <div
+            className="flex items-center justify-between px-2 py-1.5 cursor-pointer hover:bg-white/5 rounded"
+            onClick={() => setIsPublicScene(v => !v)}
+          >
+            <span className="text-xs font-mono text-gray-400 flex items-center gap-1.5">
+              <Shield size={10} />
+              {isPublicScene ? 'Public scene' : 'Private scene'}
+            </span>
+            <div
+              className="w-7 h-3.5 rounded-full relative transition-colors"
+              style={{ background: isPublicScene ? '#00e5ff44' : '#2a2a38' }}
+            >
+              <div
+                className="absolute top-0.5 w-2.5 h-2.5 rounded-full transition-all"
+                style={{
+                  left: isPublicScene ? '14px' : '2px',
+                  background: isPublicScene ? '#00e5ff' : '#555',
+                }}
+              />
+            </div>
+          </div>
 
           {/* Load from database */}
           {sceneList.length > 0 && (
