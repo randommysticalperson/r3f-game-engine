@@ -24,6 +24,8 @@ import {
   Cpu,
   Trash2,
   RefreshCw,
+  Shield,
+  Atom,
 } from 'lucide-react';
 import { useEngineStore } from './store';
 import { saveScene, loadScene, getSavedScenesList, deleteScene, exportSceneJSON, downloadJSON } from './sceneIO';
@@ -94,6 +96,7 @@ export default function Toolbar() {
     objects, rootIds,
     loadDefaultScene,
     log,
+    showPhysicsDebug, togglePhysicsDebug,
   } = useEngineStore();
 
   const isPlay = mode === 'play';
@@ -250,6 +253,9 @@ export default function Toolbar() {
       </ToolbarBtn>
       <ToolbarBtn onClick={toggleStats} active={showStats} title="Toggle Performance Stats">
         <BarChart2 size={13} />
+      </ToolbarBtn>
+      <ToolbarBtn onClick={togglePhysicsDebug} active={showPhysicsDebug} title="Toggle Physics Debug (Collider Wireframes)">
+        <Shield size={13} />
       </ToolbarBtn>
 
       {/* Spacer */}

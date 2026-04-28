@@ -1,47 +1,17 @@
 /**
  * R3F Game Engine — Inspector Panel
  * Design: Obsidian Terminal — component-based property editor
+ * Physics: Rapier WASM via @react-three/rapier
  */
 
 import { useState } from 'react';
 import {
-  ChevronDown,
-  ChevronRight,
-  Trash2,
-  Plus,
-  Move3D,
-  Box,
-  Sun,
-  Camera,
-  Code2,
-  Zap,
-  Shield,
-  Eye,
-  EyeOff,
-  Lock,
-  Unlock,
-  Tag,
+  ChevronDown, ChevronRight, Trash2, Plus, Move3D, Box, Sun, Camera, Code2, Zap, Shield, Eye, EyeOff, Lock, Unlock, Tag,
 } from 'lucide-react';
 import { useEngineStore } from './store';
-import type {
-  TransformComponent,
-  MeshComponent,
-  LightComponent,
-  CameraComponent,
-  ScriptComponent,
-  RigidbodyComponent,
-  ColliderComponent,
-  Component,
-} from './store';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { makeDefaultMesh, makeDefaultLight } from './store';
-
-// ─── Shared field components ──────────────────────────────────────────────────
+import type { TransformComponent, MeshComponent, LightComponent, CameraComponent, ScriptComponent, RigidbodyComponent, ColliderComponent, Component } from './store';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { makeDefaultMesh, makeDefaultLight, makeDefaultRigidbody, makeDefaultCollider } from './store';
 
 function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -52,108 +22,50 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-function NumberInput({
-  value,
-  onChange,
-  step = 0.1,
-  label,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  step?: number;
-  label?: string;
-}) {
+function NumberInput({ value, onChange, step = 0.1, label }: { value: number; onChange: (v: number) => void; step?: number; label?: string }) {
   return (
-    <input
-      type="number"
+    <input type="number"
       className="w-full text-xs font-mono bg-transparent border-b outline-none text-gray-200 text-right px-1 py-0.5 hover:border-cyan-700 focus:border-cyan-500 transition-colors"
       style={{ borderColor: '#2a2a38' }}
-      value={Number(value.toFixed(4))}
-      step={step}
-      onChange={e => onChange(parseFloat(e.target.value) || 0)}
-      title={label}
+      value={Number(value.toFixed(4))} step={step}
+      onChange={e => onChange(parseFloat(e.target.value) || 0)} title={label}
     />
   );
 }
 
-function Vec3Field({
-  label,
-  value,
-  onChange,
-  step = 0.1,
-}: {
-  label: string;
-  value: [number, number, number];
-  onChange: (v: [number, number, number]) => void;
-  step?: number;
-}) {
+function Vec3Input({ value, onChange, step = 0.1 }: { value: [number,number,number]; onChange: (v: [number,number,number]) => void; step?: number }) {
   return (
-    <FieldRow label={label}>
-      <div className="grid grid-cols-3 gap-1">
-        {(['X', 'Y', 'Z'] as const).map((axis, i) => (
-          <div key={axis} className="flex items-center gap-0.5">
-            <span className="text-xs font-mono shrink-0" style={{ color: i === 0 ? '#ff6666' : i === 1 ? '#66ff66' : '#6688ff', fontSize: 9 }}>{axis}</span>
-            <NumberInput
-              value={value[i]}
-              onChange={v => {
-                const next = [...value] as [number, number, number];
-                next[i] = v;
-                onChange(next);
-              }}
-              step={step}
-              label={`${label} ${axis}`}
-            />
-          </div>
-        ))}
-      </div>
-    </FieldRow>
+    <div className="grid grid-cols-3 gap-1">
+      {(['X','Y','Z'] as const).map((axis, i) => (
+        <div key={axis} className="flex items-center gap-0.5">
+          <span className="text-xs font-mono shrink-0" style={{ color: i===0?'#ff6666':i===1?'#66ff66':'#6688ff', fontSize: 9 }}>{axis}</span>
+          <NumberInput value={value[i]} onChange={v => { const n=[...value] as [number,number,number]; n[i]=v; onChange(n); }} step={step} />
+        </div>
+      ))}
+    </div>
   );
+}
+
+function Vec3Field({ label, value, onChange, step = 0.1 }: { label: string; value: [number,number,number]; onChange: (v: [number,number,number]) => void; step?: number }) {
+  return <FieldRow label={label}><Vec3Input value={value} onChange={onChange} step={step} /></FieldRow>;
 }
 
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <FieldRow label={label}>
       <div className="flex items-center gap-2">
-        <input
-          type="color"
-          className="w-6 h-5 rounded cursor-pointer border-0 p-0"
-          style={{ background: 'none' }}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-        />
+        <input type="color" className="w-6 h-5 rounded cursor-pointer border-0 p-0" style={{ background: 'none' }} value={value} onChange={e => onChange(e.target.value)} />
         <span className="text-xs font-mono text-gray-400">{value.toUpperCase()}</span>
       </div>
     </FieldRow>
   );
 }
 
-function SliderField({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (v: number) => void;
-}) {
+function SliderField({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
   return (
     <FieldRow label={label}>
       <div className="flex items-center gap-2">
-        <input
-          type="range"
-          className="flex-1 h-1 accent-cyan-500"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={e => onChange(parseFloat(e.target.value))}
-        />
+        <input type="range" className="flex-1 h-1 accent-cyan-500" min={min} max={max} step={step} value={value} onChange={e => onChange(parseFloat(e.target.value))} />
         <span className="text-xs font-mono text-gray-400 w-10 text-right">{value.toFixed(2)}</span>
       </div>
     </FieldRow>
@@ -161,82 +73,31 @@ function SliderField({
 }
 
 function CheckboxField({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <FieldRow label={label}>
-      <input
-        type="checkbox"
-        className="accent-cyan-500 cursor-pointer"
-        checked={value}
-        onChange={e => onChange(e.target.checked)}
-      />
-    </FieldRow>
-  );
+  return <FieldRow label={label}><input type="checkbox" className="accent-cyan-500 cursor-pointer" checked={value} onChange={e => onChange(e.target.checked)} /></FieldRow>;
 }
 
-function SelectField({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (v: string) => void;
-}) {
+function SelectField({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void }) {
   return (
     <FieldRow label={label}>
-      <select
-        className="w-full text-xs font-mono bg-transparent border-b outline-none text-gray-200 py-0.5 cursor-pointer"
-        style={{ borderColor: '#2a2a38', background: '#111116' }}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-      >
-        {options.map(o => (
-          <option key={o.value} value={o.value} style={{ background: '#111116' }}>{o.label}</option>
-        ))}
+      <select className="w-full text-xs font-mono bg-transparent border-b outline-none text-gray-200 py-0.5 cursor-pointer" style={{ borderColor: '#2a2a38', background: '#111116' }} value={value} onChange={e => onChange(e.target.value)}>
+        {options.map(o => <option key={o.value} value={o.value} style={{ background: '#111116' }}>{o.label}</option>)}
       </select>
     </FieldRow>
   );
 }
 
-// ─── Component sections ───────────────────────────────────────────────────────
-
-function ComponentSection({
-  title,
-  icon,
-  children,
-  onRemove,
-  removable = true,
-  accentColor = '#00e5ff',
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  onRemove?: () => void;
-  removable?: boolean;
-  accentColor?: string;
+function ComponentSection({ title, icon, children, onRemove, removable = true, accentColor = '#00e5ff' }: {
+  title: string; icon: React.ReactNode; children: React.ReactNode; onRemove?: () => void; removable?: boolean; accentColor?: string;
 }) {
   const [open, setOpen] = useState(true);
-
   return (
     <div className="mb-1" style={{ borderBottom: '1px solid #1a1a28' }}>
-      <div
-        className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/3 transition-colors"
-        onClick={() => setOpen(v => !v)}
-        style={{ borderLeft: `2px solid ${accentColor}` }}
-      >
+      <div className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/3 transition-colors" onClick={() => setOpen(v => !v)} style={{ borderLeft: `2px solid ${accentColor}` }}>
         {open ? <ChevronDown size={10} className="text-gray-500" /> : <ChevronRight size={10} className="text-gray-500" />}
-        <span className="text-gray-400" style={{ color: accentColor }}>{icon}</span>
+        <span style={{ color: accentColor }}>{icon}</span>
         <span className="text-xs font-mono font-bold text-gray-200 flex-1">{title}</span>
         {removable && onRemove && (
-          <button
-            className="p-0.5 hover:text-red-400 text-gray-600 transition-colors"
-            onClick={e => { e.stopPropagation(); onRemove(); }}
-            title="Remove component"
-          >
-            <Trash2 size={10} />
-          </button>
+          <button className="p-0.5 hover:text-red-400 text-gray-600 transition-colors" onClick={e => { e.stopPropagation(); onRemove(); }} title="Remove component"><Trash2 size={10} /></button>
         )}
       </div>
       {open && <div className="px-3 py-2 space-y-0.5">{children}</div>}
@@ -244,12 +105,9 @@ function ComponentSection({
   );
 }
 
-// ─── Transform editor ─────────────────────────────────────────────────────────
-
 function TransformEditor({ id, comp }: { id: string; comp: TransformComponent }) {
   const { updateComponent } = useEngineStore();
   const upd = (patch: Partial<TransformComponent>) => updateComponent<TransformComponent>(id, 'transform', patch);
-
   return (
     <ComponentSection title="Transform" icon={<Move3D size={11} />} removable={false} accentColor="#4488ff">
       <Vec3Field label="Position" value={comp.position} onChange={v => upd({ position: v })} step={0.1} />
@@ -259,34 +117,16 @@ function TransformEditor({ id, comp }: { id: string; comp: TransformComponent })
   );
 }
 
-// ─── Mesh editor ──────────────────────────────────────────────────────────────
-
 function MeshEditor({ id, comp }: { id: string; comp: MeshComponent }) {
   const { updateComponent, removeComponent } = useEngineStore();
   const upd = (patch: Partial<MeshComponent>) => updateComponent<MeshComponent>(id, 'mesh', patch);
-
   return (
-    <ComponentSection
-      title="Mesh Renderer"
-      icon={<Box size={11} />}
-      onRemove={() => removeComponent(id, 'mesh')}
-      accentColor="#00e5ff"
-    >
-      <SelectField
-        label="Geometry"
-        value={comp.geometry}
-        options={[
-          { value: 'box', label: 'Box' },
-          { value: 'sphere', label: 'Sphere' },
-          { value: 'cylinder', label: 'Cylinder' },
-          { value: 'cone', label: 'Cone' },
-          { value: 'torus', label: 'Torus' },
-          { value: 'plane', label: 'Plane' },
-          { value: 'capsule', label: 'Capsule' },
-          { value: 'icosahedron', label: 'Icosahedron' },
-        ]}
-        onChange={v => upd({ geometry: v as any })}
-      />
+    <ComponentSection title="Mesh Renderer" icon={<Box size={11} />} onRemove={() => removeComponent(id, 'mesh')} accentColor="#00e5ff">
+      <SelectField label="Geometry" value={comp.geometry} options={[
+        { value: 'box', label: 'Box' }, { value: 'sphere', label: 'Sphere' }, { value: 'cylinder', label: 'Cylinder' },
+        { value: 'cone', label: 'Cone' }, { value: 'torus', label: 'Torus' }, { value: 'plane', label: 'Plane' },
+        { value: 'capsule', label: 'Capsule' }, { value: 'icosahedron', label: 'Icosahedron' },
+      ]} onChange={v => upd({ geometry: v as any })} />
       <ColorField label="Color" value={comp.color} onChange={v => upd({ color: v })} />
       <SliderField label="Metalness" value={comp.metalness} min={0} max={1} step={0.01} onChange={v => upd({ metalness: v })} />
       <SliderField label="Roughness" value={comp.roughness} min={0} max={1} step={0.01} onChange={v => upd({ roughness: v })} />
@@ -298,41 +138,24 @@ function MeshEditor({ id, comp }: { id: string; comp: MeshComponent }) {
   );
 }
 
-// ─── Light editor ─────────────────────────────────────────────────────────────
-
 function LightEditor({ id, comp }: { id: string; comp: LightComponent }) {
   const { updateComponent, removeComponent } = useEngineStore();
   const upd = (patch: Partial<LightComponent>) => updateComponent<LightComponent>(id, 'light', patch);
-
   return (
-    <ComponentSection
-      title="Light"
-      icon={<Sun size={11} />}
-      onRemove={() => removeComponent(id, 'light')}
-      accentColor="#ffee44"
-    >
-      <SelectField
-        label="Type"
-        value={comp.lightType}
-        options={[
-          { value: 'ambient', label: 'Ambient' },
-          { value: 'directional', label: 'Directional' },
-          { value: 'point', label: 'Point' },
-          { value: 'spot', label: 'Spot' },
-        ]}
-        onChange={v => upd({ lightType: v as any })}
-      />
+    <ComponentSection title="Light" icon={<Sun size={11} />} onRemove={() => removeComponent(id, 'light')} accentColor="#ffee44">
+      <SelectField label="Type" value={comp.lightType} options={[
+        { value: 'ambient', label: 'Ambient' }, { value: 'directional', label: 'Directional' },
+        { value: 'point', label: 'Point' }, { value: 'spot', label: 'Spot' },
+      ]} onChange={v => upd({ lightType: v as any })} />
       <ColorField label="Color" value={comp.color} onChange={v => upd({ color: v })} />
       <SliderField label="Intensity" value={comp.intensity} min={0} max={10} step={0.1} onChange={v => upd({ intensity: v })} />
-      {comp.lightType !== 'ambient' && (
-        <CheckboxField label="Cast Shadow" value={comp.castShadow} onChange={v => upd({ castShadow: v })} />
-      )}
+      <CheckboxField label="Cast Shadow" value={comp.castShadow} onChange={v => upd({ castShadow: v })} />
       {(comp.lightType === 'point' || comp.lightType === 'spot') && (
         <SliderField label="Distance" value={comp.distance ?? 20} min={0} max={100} step={0.5} onChange={v => upd({ distance: v })} />
       )}
       {comp.lightType === 'spot' && (
         <>
-          <SliderField label="Angle" value={(comp.angle ?? Math.PI / 4) * (180 / Math.PI)} min={1} max={90} step={1} onChange={v => upd({ angle: v * (Math.PI / 180) })} />
+          <SliderField label="Angle" value={comp.angle ?? Math.PI/4} min={0} max={Math.PI/2} step={0.01} onChange={v => upd({ angle: v })} />
           <SliderField label="Penumbra" value={comp.penumbra ?? 0.1} min={0} max={1} step={0.01} onChange={v => upd({ penumbra: v })} />
         </>
       )}
@@ -340,123 +163,116 @@ function LightEditor({ id, comp }: { id: string; comp: LightComponent }) {
   );
 }
 
-// ─── Camera editor ────────────────────────────────────────────────────────────
-
 function CameraEditor({ id, comp }: { id: string; comp: CameraComponent }) {
   const { updateComponent, removeComponent } = useEngineStore();
   const upd = (patch: Partial<CameraComponent>) => updateComponent<CameraComponent>(id, 'camera', patch);
-
   return (
-    <ComponentSection
-      title="Camera"
-      icon={<Camera size={11} />}
-      onRemove={() => removeComponent(id, 'camera')}
-      accentColor="#44aaff"
-    >
+    <ComponentSection title="Camera" icon={<Camera size={11} />} onRemove={() => removeComponent(id, 'camera')} accentColor="#aa88ff">
       <SliderField label="FOV" value={comp.fov} min={10} max={170} step={1} onChange={v => upd({ fov: v })} />
-      <FieldRow label="Near">
-        <NumberInput value={comp.near} onChange={v => upd({ near: v })} step={0.01} />
-      </FieldRow>
-      <FieldRow label="Far">
-        <NumberInput value={comp.far} onChange={v => upd({ far: v })} step={10} />
-      </FieldRow>
-      <CheckboxField label="Main Cam" value={comp.isMain} onChange={v => upd({ isMain: v })} />
+      <FieldRow label="Near"><NumberInput value={comp.near} onChange={v => upd({ near: v })} step={0.01} /></FieldRow>
+      <FieldRow label="Far"><NumberInput value={comp.far} onChange={v => upd({ far: v })} step={10} /></FieldRow>
+      <CheckboxField label="Is Main" value={comp.isMain} onChange={v => upd({ isMain: v })} />
     </ComponentSection>
   );
 }
 
-// ─── Script editor ────────────────────────────────────────────────────────────
-
 function ScriptEditor({ id, comp }: { id: string; comp: ScriptComponent }) {
   const { updateComponent, removeComponent } = useEngineStore();
   const upd = (patch: Partial<ScriptComponent>) => updateComponent<ScriptComponent>(id, 'script', patch);
-
   return (
-    <ComponentSection
-      title="Script"
-      icon={<Code2 size={11} />}
-      onRemove={() => removeComponent(id, 'script')}
-      accentColor="#aa44ff"
-    >
+    <ComponentSection title="Script" icon={<Code2 size={11} />} onRemove={() => removeComponent(id, 'script')} accentColor="#ff88cc">
       <CheckboxField label="Enabled" value={comp.enabled} onChange={v => upd({ enabled: v })} />
       <div className="mt-1">
-        <span className="text-xs font-mono text-gray-500 block mb-1">Code</span>
         <textarea
           className="w-full text-xs font-mono rounded p-2 outline-none resize-y"
-          style={{
-            background: '#0a0a10',
-            border: '1px solid #2a2a38',
-            color: '#c8d0e0',
-            minHeight: 80,
-            fontFamily: 'JetBrains Mono, monospace',
-          }}
-          value={comp.code}
-          onChange={e => upd({ code: e.target.value })}
-          placeholder="// onUpdate(delta) { ... }"
-          spellCheck={false}
+          style={{ background: '#0a0a12', border: '1px solid #2a2a38', color: '#c8d0e0', minHeight: 80, maxHeight: 200 }}
+          value={comp.code} onChange={e => upd({ code: e.target.value })}
+          placeholder="// onUpdate(delta) { ... }" spellCheck={false}
         />
       </div>
     </ComponentSection>
   );
 }
 
-// ─── Rigidbody editor ─────────────────────────────────────────────────────────
-
 function RigidbodyEditor({ id, comp }: { id: string; comp: RigidbodyComponent }) {
   const { updateComponent, removeComponent } = useEngineStore();
   const upd = (patch: Partial<RigidbodyComponent>) => updateComponent<RigidbodyComponent>(id, 'rigidbody', patch);
-
+  const bodyTypes = ['dynamic', 'fixed', 'kinematicPosition', 'kinematicVelocity'] as const;
   return (
-    <ComponentSection
-      title="Rigidbody"
-      icon={<Zap size={11} />}
-      onRemove={() => removeComponent(id, 'rigidbody')}
-      accentColor="#ff6b35"
-    >
-      <FieldRow label="Mass">
-        <NumberInput value={comp.mass} onChange={v => upd({ mass: v })} step={0.1} />
+    <ComponentSection title="Rigidbody (Rapier)" icon={<Zap size={11} />} onRemove={() => removeComponent(id, 'rigidbody')} accentColor="#ff6b35">
+      <FieldRow label="Body Type">
+        <select value={comp.bodyType} onChange={e => upd({ bodyType: e.target.value as typeof comp.bodyType })}
+          className="w-full text-xs font-mono rounded px-1.5 py-0.5 outline-none"
+          style={{ background: '#1a1a26', border: '1px solid #2a2a38', color: '#c8d0e0' }}>
+          {bodyTypes.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
       </FieldRow>
-      <CheckboxField label="Kinematic" value={comp.isKinematic} onChange={v => upd({ isKinematic: v })} />
-      <CheckboxField label="Use Gravity" value={comp.useGravity} onChange={v => upd({ useGravity: v })} />
-      <SliderField label="Drag" value={comp.drag} min={0} max={10} step={0.01} onChange={v => upd({ drag: v })} />
-      <SliderField label="Ang Drag" value={comp.angularDrag} min={0} max={10} step={0.01} onChange={v => upd({ angularDrag: v })} />
+      <SliderField label="Gravity Scale" value={comp.gravityScale} min={-2} max={4} step={0.1} onChange={v => upd({ gravityScale: v })} />
+      <SliderField label="Lin Damping" value={comp.linearDamping} min={0} max={10} step={0.01} onChange={v => upd({ linearDamping: v })} />
+      <SliderField label="Ang Damping" value={comp.angularDamping} min={0} max={10} step={0.01} onChange={v => upd({ angularDamping: v })} />
+      <FieldRow label="Init Vel"><Vec3Input value={comp.initialLinearVelocity} onChange={v => upd({ initialLinearVelocity: v })} step={0.1} /></FieldRow>
+      <FieldRow label="Init AngVel"><Vec3Input value={comp.initialAngularVelocity} onChange={v => upd({ initialAngularVelocity: v })} step={0.1} /></FieldRow>
+      <CheckboxField label="Lock Translate" value={comp.lockTranslations} onChange={v => upd({ lockTranslations: v })} />
+      <CheckboxField label="Lock Rotate" value={comp.lockRotations} onChange={v => upd({ lockRotations: v })} />
+      <CheckboxField label="CCD" value={comp.ccd} onChange={v => upd({ ccd: v })} />
+      <CheckboxField label="Can Sleep" value={comp.canSleep} onChange={v => upd({ canSleep: v })} />
     </ComponentSection>
   );
 }
 
-// ─── Add component menu ───────────────────────────────────────────────────────
+function ColliderEditor({ id, comp }: { id: string; comp: ColliderComponent }) {
+  const { updateComponent, removeComponent } = useEngineStore();
+  const upd = (patch: Partial<ColliderComponent>) => updateComponent<ColliderComponent>(id, 'collider', patch);
+  const shapes = ['cuboid', 'ball', 'capsule', 'cylinder', 'cone'] as const;
+  return (
+    <ComponentSection title="Collider (Rapier)" icon={<Shield size={11} />} onRemove={() => removeComponent(id, 'collider')} accentColor="#44ff88">
+      <FieldRow label="Shape">
+        <select value={comp.shape} onChange={e => upd({ shape: e.target.value as typeof comp.shape })}
+          className="w-full text-xs font-mono rounded px-1.5 py-0.5 outline-none"
+          style={{ background: '#1a1a26', border: '1px solid #2a2a38', color: '#c8d0e0' }}>
+          {shapes.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </FieldRow>
+      {comp.shape === 'cuboid' && (
+        <FieldRow label="Half Extents"><Vec3Input value={comp.halfExtents} onChange={v => upd({ halfExtents: v })} step={0.05} /></FieldRow>
+      )}
+      {(comp.shape === 'ball' || comp.shape === 'capsule' || comp.shape === 'cylinder' || comp.shape === 'cone') && (
+        <FieldRow label="Radius"><NumberInput value={comp.radius} onChange={v => upd({ radius: v })} step={0.05} /></FieldRow>
+      )}
+      {(comp.shape === 'capsule' || comp.shape === 'cylinder' || comp.shape === 'cone') && (
+        <FieldRow label="Half Height"><NumberInput value={comp.halfHeight} onChange={v => upd({ halfHeight: v })} step={0.05} /></FieldRow>
+      )}
+      <SliderField label="Restitution" value={comp.restitution} min={0} max={1} step={0.01} onChange={v => upd({ restitution: v })} />
+      <SliderField label="Friction" value={comp.friction} min={0} max={1} step={0.01} onChange={v => upd({ friction: v })} />
+      <SliderField label="Density" value={comp.density} min={0} max={10} step={0.1} onChange={v => upd({ density: v })} />
+      <CheckboxField label="Is Sensor" value={comp.isSensor} onChange={v => upd({ isSensor: v })} />
+      <FieldRow label="Offset"><Vec3Input value={comp.offset} onChange={v => upd({ offset: v })} step={0.05} /></FieldRow>
+    </ComponentSection>
+  );
+}
 
 function AddComponentMenu({ id, existingTypes }: { id: string; existingTypes: string[] }) {
   const { addComponent } = useEngineStore();
-
   const available = [
     { type: 'mesh', label: 'Mesh Renderer', icon: <Box size={11} />, make: () => makeDefaultMesh() },
     { type: 'light', label: 'Light', icon: <Sun size={11} />, make: () => makeDefaultLight() },
     { type: 'camera', label: 'Camera', icon: <Camera size={11} />, make: () => ({ type: 'camera' as const, fov: 60, near: 0.1, far: 1000, isMain: false }) },
     { type: 'script', label: 'Script', icon: <Code2 size={11} />, make: () => ({ type: 'script' as const, code: '// onUpdate(delta) {\n//   this.rotation.y += delta;\n// }', enabled: true }) },
-    { type: 'rigidbody', label: 'Rigidbody', icon: <Zap size={11} />, make: () => ({ type: 'rigidbody' as const, mass: 1, isKinematic: false, useGravity: true, drag: 0, angularDrag: 0.05 }) },
-    { type: 'collider', label: 'Collider', icon: <Shield size={11} />, make: () => ({ type: 'collider' as const, shape: 'box' as const, isTrigger: false, center: [0, 0, 0] as [number,number,number], size: [1, 1, 1] as [number,number,number] }) },
+    { type: 'rigidbody', label: 'Rigidbody', icon: <Zap size={11} />, make: () => makeDefaultRigidbody() },
+    { type: 'collider', label: 'Collider', icon: <Shield size={11} />, make: () => makeDefaultCollider() },
   ].filter(c => !existingTypes.includes(c.type));
-
   if (available.length === 0) return null;
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-mono text-cyan-500 border border-dashed border-cyan-900/60 hover:border-cyan-500/60 hover:bg-cyan-950/20 rounded transition-colors mt-2 mx-3"
-          style={{ width: 'calc(100% - 24px)' }}
-        >
+        <button className="flex items-center justify-center gap-1.5 py-1.5 text-xs font-mono text-cyan-500 border border-dashed border-cyan-900/60 hover:border-cyan-500/60 hover:bg-cyan-950/20 rounded transition-colors mt-2 mx-3"
+          style={{ width: 'calc(100% - 24px)' }}>
           <Plus size={11} /> Add Component
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent style={{ background: '#111116', border: '1px solid #2a2a38' }}>
         {available.map(c => (
-          <DropdownMenuItem
-            key={c.type}
-            className="text-xs font-mono gap-2"
-            onClick={() => addComponent(id, c.make() as Component)}
-          >
+          <DropdownMenuItem key={c.type} className="text-xs font-mono gap-2" onClick={() => addComponent(id, c.make() as Component)}>
             {c.icon} {c.label}
           </DropdownMenuItem>
         ))}
@@ -464,8 +280,6 @@ function AddComponentMenu({ id, existingTypes }: { id: string; existingTypes: st
     </DropdownMenu>
   );
 }
-
-// ─── Main Inspector Panel ─────────────────────────────────────────────────────
 
 export default function InspectorPanel() {
   const { objects, selectedIds, updateObject } = useEngineStore();
@@ -489,30 +303,21 @@ export default function InspectorPanel() {
   const camera = obj.components.camera as CameraComponent | undefined;
   const script = obj.components.script as ScriptComponent | undefined;
   const rigidbody = obj.components.rigidbody as RigidbodyComponent | undefined;
+  const collider = obj.components.collider as ColliderComponent | undefined;
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: '#0e0e16' }}>
-      {/* Object header */}
       <div className="px-3 py-2 shrink-0" style={{ borderBottom: '1px solid #1e1e2e' }}>
         <div className="flex items-center gap-2 mb-1.5">
           <input
             className="flex-1 text-sm font-mono font-bold bg-transparent border-b outline-none text-gray-100 pb-0.5 hover:border-cyan-700 focus:border-cyan-500 transition-colors"
             style={{ borderColor: '#2a2a38' }}
-            value={obj.name}
-            onChange={e => updateObject(obj.id, { name: e.target.value })}
+            value={obj.name} onChange={e => updateObject(obj.id, { name: e.target.value })}
           />
-          <button
-            className="p-1 hover:text-cyan-400 text-gray-500 transition-colors"
-            onClick={() => updateObject(obj.id, { active: !obj.active })}
-            title={obj.active ? 'Deactivate' : 'Activate'}
-          >
+          <button className="p-1 hover:text-cyan-400 text-gray-500 transition-colors" onClick={() => updateObject(obj.id, { active: !obj.active })} title={obj.active ? 'Deactivate' : 'Activate'}>
             {obj.active ? <Eye size={12} /> : <EyeOff size={12} className="text-gray-600" />}
           </button>
-          <button
-            className="p-1 hover:text-orange-400 text-gray-500 transition-colors"
-            onClick={() => updateObject(obj.id, { locked: !obj.locked })}
-            title={obj.locked ? 'Unlock' : 'Lock'}
-          >
+          <button className="p-1 hover:text-orange-400 text-gray-500 transition-colors" onClick={() => updateObject(obj.id, { locked: !obj.locked })} title={obj.locked ? 'Unlock' : 'Lock'}>
             {obj.locked ? <Lock size={12} className="text-orange-400" /> : <Unlock size={12} />}
           </button>
         </div>
@@ -521,8 +326,6 @@ export default function InspectorPanel() {
           <span className="text-xs font-mono text-gray-600">ID: {obj.id}</span>
         </div>
       </div>
-
-      {/* Components */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {transform && <TransformEditor id={obj.id} comp={transform} />}
         {mesh && <MeshEditor id={obj.id} comp={mesh} />}
@@ -530,7 +333,7 @@ export default function InspectorPanel() {
         {camera && <CameraEditor id={obj.id} comp={camera} />}
         {script && <ScriptEditor id={obj.id} comp={script} />}
         {rigidbody && <RigidbodyEditor id={obj.id} comp={rigidbody} />}
-
+        {collider && <ColliderEditor id={obj.id} comp={collider} />}
         <AddComponentMenu id={obj.id} existingTypes={existingTypes} />
         <div className="h-4" />
       </div>
