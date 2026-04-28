@@ -1,6 +1,6 @@
 /**
- * R3F Game Engine — Welcome Overlay
- * Design: Obsidian Terminal — shown on first load
+ * R3F Game Engine -- Welcome Overlay
+ * Design: Obsidian Terminal -- shown on first load
  */
 
 import { useState } from 'react';
@@ -65,7 +65,7 @@ export default function WelcomeOverlay() {
               { icon: <Box size={12} />, text: 'Click objects in the scene to select them' },
               { icon: <Move size={12} />, text: 'Use W/E/R to switch transform modes' },
               { icon: <Sun size={12} />, text: 'Add objects via the Hierarchy panel' },
-              { icon: <Play size={12} />, text: 'Press F5 or ▶ to enter Play mode' },
+              { icon: <Play size={12} />, text: 'Press F5 or ? to enter Play mode' },
             ].map((item, i) => (
               <div key={i} className="flex items-start gap-2 p-2 rounded" style={{ background: '#16161e', border: '1px solid #1e1e2e' }}>
                 <span className="text-cyan-500 shrink-0 mt-0.5">{item.icon}</span>
@@ -104,7 +104,7 @@ export default function WelcomeOverlay() {
             style={{ background: '#00e5ff18', border: '1px solid #00e5ff44', color: '#00e5ff' }}
             onClick={() => setVisible(false)}
           >
-            Start Building →
+            Start Building ?
           </button>
         </div>
       </div>

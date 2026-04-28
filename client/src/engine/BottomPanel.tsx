@@ -1,6 +1,6 @@
 /**
- * R3F Game Engine — Bottom Panel (Console + Assets)
- * Design: Obsidian Terminal — monospace terminal output
+ * R3F Game Engine -- Bottom Panel (Console + Assets)
+ * Design: Obsidian Terminal -- monospace terminal output
  */
 
 import { useRef, useEffect, useState } from 'react';
@@ -26,7 +26,7 @@ import {
 import { useEngineStore } from './store';
 import type { ConsoleEntry } from './store';
 
-// ─── Console ──────────────────────────────────────────────────────────────────
+// --- Console ------------------------------------------------------------------
 
 function ConsoleIcon({ level }: { level: ConsoleEntry['level'] }) {
   switch (level) {
@@ -86,7 +86,7 @@ function ConsolePanel() {
             }`}
             onClick={() => setConsoleFilter(f)}
           >
-            {f === 'all' ? `All (${consoleEntries.length})` : f === 'warn' ? `⚠ ${counts.warn}` : f === 'error' ? `✕ ${counts.error}` : `✓ ${counts.log}`}
+            {f === 'all' ? `All (${consoleEntries.length})` : f === 'warn' ? `? ${counts.warn}` : f === 'error' ? `? ${counts.error}` : `? ${counts.log}`}
           </button>
         ))}
         <div className="flex-1" />
@@ -102,7 +102,7 @@ function ConsolePanel() {
           onClick={() => setAutoScroll(v => !v)}
           title="Auto-scroll"
         >
-          ↓
+          ?
         </button>
       </div>
 
@@ -143,7 +143,7 @@ function ConsolePanel() {
   );
 }
 
-// ─── Assets Browser ───────────────────────────────────────────────────────────
+// --- Assets Browser -----------------------------------------------------------
 
 const DEMO_ASSETS = [
   { id: 'a1', name: 'DefaultMaterial', type: 'material', icon: <Box size={14} className="text-cyan-400" /> },
@@ -233,7 +233,7 @@ function AssetsPanel() {
   );
 }
 
-// ─── Main Bottom Panel ────────────────────────────────────────────────────────
+// --- Main Bottom Panel --------------------------------------------------------
 
 export default function BottomPanel() {
   const { bottomPanelTab, setBottomPanelTab, bottomPanelOpen, toggleBottomPanel, consoleEntries } = useEngineStore();

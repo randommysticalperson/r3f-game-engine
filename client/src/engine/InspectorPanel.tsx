@@ -1,6 +1,6 @@
 /**
- * R3F Game Engine — Inspector Panel
- * Design: Obsidian Terminal — component-based property editor
+ * R3F Game Engine -- Inspector Panel
+ * Design: Obsidian Terminal -- component-based property editor
  * Physics: Rapier WASM via @react-three/rapier
  */
 

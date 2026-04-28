@@ -1,10 +1,10 @@
 /**
- * R3F Game Engine — 3D Viewport
- * Design: Obsidian Terminal — electric cyan selections, ember orange play mode
+ * R3F Game Engine -- 3D Viewport
+ * Design: Obsidian Terminal -- electric cyan selections, ember orange play mode
  *
  * Physics: @react-three/rapier (Rapier WASM)
  * - Editor mode: static preview, transform gizmos, no physics
- * - Play mode: full Rapier simulation — rigid bodies, colliders, gravity, CCD
+ * - Play mode: full Rapier simulation -- rigid bodies, colliders, gravity, CCD
  * - Physics debug: shows collider wireframes via <Debug />
  */
 
@@ -38,7 +38,7 @@ import type {
   TransformComponent,
 } from './store';
 
-// ─── Geometry map ─────────────────────────────────────────────────────────────
+// --- Geometry map -------------------------------------------------------------
 
 function GeometryByType({ geometry }: { geometry: MeshGeometry }) {
   switch (geometry) {
@@ -53,7 +53,7 @@ function GeometryByType({ geometry }: { geometry: MeshGeometry }) {
   }
 }
 
-// ─── Collider wrapper ─────────────────────────────────────────────────────────
+// --- Collider wrapper ---------------------------------------------------------
 
 function ColliderByShape({
   collider,
@@ -92,7 +92,7 @@ function ColliderByShape({
   }
 }
 
-// ─── Physics-aware scene object ───────────────────────────────────────────────
+// --- Physics-aware scene object -----------------------------------------------
 
 function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
   const { selectedIds, hoveredId, selectObject, setHovered, showWireframe } = useEngineStore();
@@ -172,7 +172,7 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
     );
   }
 
-  // No rigidbody — plain static mesh
+  // No rigidbody -- plain static mesh
   return (
     <group position={pos} rotation={rotRad} scale={scl}>
       {meshEl}
@@ -180,7 +180,7 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
   );
 }
 
-// ─── Editor-mode (non-physics) scene object ───────────────────────────────────
+// --- Editor-mode (non-physics) scene object -----------------------------------
 
 function EditorSceneObject({ obj }: { obj: SceneObject }) {
   const { selectedIds, hoveredId, selectObject, setHovered, showWireframe } = useEngineStore();
@@ -229,7 +229,7 @@ function EditorSceneObject({ obj }: { obj: SceneObject }) {
   );
 }
 
-// ─── Light renderer ───────────────────────────────────────────────────────────
+// --- Light renderer -----------------------------------------------------------
 
 function SceneLights({ objects }: { objects: Record<string, SceneObject> }) {
   return (
@@ -285,14 +285,14 @@ function SceneLights({ objects }: { objects: Record<string, SceneObject> }) {
   );
 }
 
-// ─── Play-mode scene with Rapier Physics ─────────────────────────────────────
+// --- Play-mode scene with Rapier Physics -------------------------------------
 
 function PhysicsScene({ objects, rootIds }: { objects: Record<string, SceneObject>; rootIds: string[] }) {
   const { physicsGravity, physicsTimestep, showPhysicsDebug, log } = useEngineStore();
 
   // Log physics start
   useEffect(() => {
-    log(`Physics world active — gravity: [${physicsGravity.join(', ')}]`, 'info', 'Physics');
+    log(`Physics world active -- gravity: [${physicsGravity.join(', ')}]`, 'info', 'Physics');
   }, []);
 
   return (
@@ -311,7 +311,7 @@ function PhysicsScene({ objects, rootIds }: { objects: Record<string, SceneObjec
   );
 }
 
-// ─── Editor-mode scene (no physics) ──────────────────────────────────────────
+// --- Editor-mode scene (no physics) ------------------------------------------
 
 function EditorScene({ objects, rootIds }: { objects: Record<string, SceneObject>; rootIds: string[] }) {
   return (
@@ -326,7 +326,7 @@ function EditorScene({ objects, rootIds }: { objects: Record<string, SceneObject
   );
 }
 
-// ─── Transform gizmo ─────────────────────────────────────────────────────────
+// --- Transform gizmo ---------------------------------------------------------
 
 function TransformGizmo() {
   const { selectedIds, objects, transformMode, transformSpace, updateComponent, mode } = useEngineStore();
@@ -334,57 +334,82 @@ function TransformGizmo() {
   const obj = selectedId ? objects[selectedId] : null;
   const transform = obj?.components.transform as TransformComponent | undefined;
 
-  const groupRef = useRef<THREE.Group>(null);
+  // Pivot group ref - rendered at scene root, TransformControls attaches here imperatively
+  const pivotRef = useRef<THREE.Group>(null);
+  // TransformControls ref - attached after mount to guarantee ref is non-null (fixes updateMatrixWorld crash)
+  const controlsRef = useRef<any>(null);
   const isDragging = useRef(false);
+
+  // Sync pivot position/rotation/scale from store whenever selection or transform changes
+  useEffect(() => {
+    if (!pivotRef.current || !transform) return;
+    const [px, py, pz] = transform.position as [number, number, number];
+    const [rx, ry, rz] = transform.rotation as [number, number, number];
+    const [sx, sy, sz] = transform.scale as [number, number, number];
+    pivotRef.current.position.set(px, py, pz);
+    pivotRef.current.rotation.set(
+      (rx * Math.PI) / 180,
+      (ry * Math.PI) / 180,
+      (rz * Math.PI) / 180
+    );
+    pivotRef.current.scale.set(sx, sy, sz);
+  }, [selectedId, transform]);
+
+  // Attach TransformControls to pivot after both refs are populated
+  useEffect(() => {
+    const controls = controlsRef.current;
+    const pivot = pivotRef.current;
+    if (!controls || !pivot) return;
+    controls.attach(pivot);
+    return () => {
+      if (controls) controls.detach();
+    };
+  }, [selectedId]);
 
   if (!obj || !transform || mode !== 'editor') return null;
 
-  const pos = transform.position as [number, number, number];
-  const rot = transform.rotation as [number, number, number];
-  const scl = transform.scale as [number, number, number];
+  const handleMouseUp = () => {
+    isDragging.current = false;
+    if (!pivotRef.current || !selectedId) return;
+    const p = pivotRef.current.position;
+    const r = pivotRef.current.rotation;
+    const s = pivotRef.current.scale;
+    updateComponent<TransformComponent>(selectedId, 'transform', {
+      position: [
+        parseFloat(p.x.toFixed(4)),
+        parseFloat(p.y.toFixed(4)),
+        parseFloat(p.z.toFixed(4)),
+      ],
+      rotation: [
+        parseFloat(((r.x * 180) / Math.PI).toFixed(2)),
+        parseFloat(((r.y * 180) / Math.PI).toFixed(2)),
+        parseFloat(((r.z * 180) / Math.PI).toFixed(2)),
+      ],
+      scale: [
+        parseFloat(s.x.toFixed(4)),
+        parseFloat(s.y.toFixed(4)),
+        parseFloat(s.z.toFixed(4)),
+      ],
+    });
+  };
 
   return (
-    <group
-      ref={groupRef}
-      position={pos}
-      rotation={[rot[0] * Math.PI / 180, rot[1] * Math.PI / 180, rot[2] * Math.PI / 180]}
-      scale={scl}
-    >
+    <>
+      {/* Invisible pivot group at scene root - TransformControls attaches here */}
+      <group ref={pivotRef} />
+      {/* TransformControls rendered separately, attached imperatively via ref */}
       <TransformControls
-        object={groupRef as React.RefObject<THREE.Object3D>}
+        ref={controlsRef}
         mode={transformMode}
         space={transformSpace}
         onMouseDown={() => { isDragging.current = true; }}
-        onMouseUp={() => {
-          isDragging.current = false;
-          if (!groupRef.current) return;
-          const p = groupRef.current.position;
-          const r = groupRef.current.rotation;
-          const s = groupRef.current.scale;
-          updateComponent<TransformComponent>(selectedId, 'transform', {
-            position: [
-              parseFloat(p.x.toFixed(4)),
-              parseFloat(p.y.toFixed(4)),
-              parseFloat(p.z.toFixed(4)),
-            ],
-            rotation: [
-              parseFloat(((r.x * 180) / Math.PI).toFixed(2)),
-              parseFloat(((r.y * 180) / Math.PI).toFixed(2)),
-              parseFloat(((r.z * 180) / Math.PI).toFixed(2)),
-            ],
-            scale: [
-              parseFloat(s.x.toFixed(4)),
-              parseFloat(s.y.toFixed(4)),
-              parseFloat(s.z.toFixed(4)),
-            ],
-          });
-        }}
+        onMouseUp={handleMouseUp}
       />
-    </group>
+    </>
   );
 }
 
-// ─── Background click handler ─────────────────────────────────────────────────
+// --- Background click handler -------------------------------------------------
 
 function BackgroundClickHandler() {
   const { gl } = useThree();
@@ -407,7 +432,7 @@ function BackgroundClickHandler() {
   return null;
 }
 
-// ─── Keyboard shortcuts ───────────────────────────────────────────────────────
+// --- Keyboard shortcuts -------------------------------------------------------
 
 function KeyboardHandler() {
   const { setTransformMode, setMode, mode, removeObject, selectedIds, duplicateObject } = useEngineStore();
@@ -429,7 +454,7 @@ function KeyboardHandler() {
   return null;
 }
 
-// ─── Scene environment ────────────────────────────────────────────────────────
+// --- Scene environment --------------------------------------------------------
 
 function SceneEnvironment() {
   return (
@@ -440,7 +465,7 @@ function SceneEnvironment() {
   );
 }
 
-// ─── Main Viewport ────────────────────────────────────────────────────────────
+// --- Main Viewport ------------------------------------------------------------
 
 export default function Viewport() {
   const {
@@ -484,7 +509,7 @@ export default function Viewport() {
           }}
         >
           <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'currentColor' }} />
-          {mode === 'pause' ? 'PAUSED — Click Stop to return to editor' : 'PLAYING — Rapier Physics Active — F5 or Stop to exit'}
+          {mode === 'pause' ? 'PAUSED -- Click Stop to return to editor' : 'PLAYING -- Rapier Physics Active -- F5 or Stop to exit'}
         </div>
       )}
 
@@ -494,7 +519,7 @@ export default function Viewport() {
           className="absolute top-2 right-16 z-20 pointer-events-none flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono"
           style={{ background: 'rgba(255,165,0,0.15)', border: '1px solid rgba(255,165,0,0.4)', color: '#ffa500' }}
         >
-          ⬡ Physics Debug
+          ? Physics Debug
         </div>
       )}
 

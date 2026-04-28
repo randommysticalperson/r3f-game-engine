@@ -1,6 +1,6 @@
 /**
- * R3F Game Engine — Scene Hierarchy Panel
- * Design: Obsidian Terminal — monospace, electric cyan selections
+ * R3F Game Engine -- Scene Hierarchy Panel
+ * Design: Obsidian Terminal -- monospace, electric cyan selections
  */
 
 import { useState, useCallback } from 'react';
@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { makeDefaultMesh, makeDefaultLight, makeDefaultTransform } from './store';
 
-// ─── Object icon ──────────────────────────────────────────────────────────────
+// --- Object icon --------------------------------------------------------------
 
 function ObjectIcon({ obj }: { obj: SceneObject }) {
   const hasLight = !!obj.components.light;
@@ -57,7 +57,7 @@ function ObjectIcon({ obj }: { obj: SceneObject }) {
   return <Layers size={11} className="text-gray-400 shrink-0" />;
 }
 
-// ─── Single hierarchy item ────────────────────────────────────────────────────
+// --- Single hierarchy item ----------------------------------------------------
 
 interface HierarchyItemProps {
   id: string;
@@ -186,7 +186,7 @@ function HierarchyItem({ id, depth }: HierarchyItemProps) {
   );
 }
 
-// ─── Add object menu ──────────────────────────────────────────────────────────
+// --- Add object menu ----------------------------------------------------------
 
 function AddObjectMenu() {
   const { addObject } = useEngineStore();
@@ -283,7 +283,7 @@ function AddObjectMenu() {
   );
 }
 
-// ─── Main Hierarchy Panel ─────────────────────────────────────────────────────
+// --- Main Hierarchy Panel -----------------------------------------------------
 
 export default function HierarchyPanel() {
   const { objects, rootIds, sceneName, setSceneName, clearScene, loadDefaultScene } = useEngineStore();

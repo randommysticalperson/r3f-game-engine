@@ -1,6 +1,6 @@
 /**
- * R3F Game Engine — Status Bar
- * Design: Obsidian Terminal — bottom info strip
+ * R3F Game Engine -- Status Bar
+ * Design: Obsidian Terminal -- bottom info strip
  */
 
 import { useEngineStore } from './store';
@@ -83,7 +83,7 @@ export default function StatusBar() {
       {/* Engine info */}
       <div className="flex items-center gap-1 text-gray-700">
         <Cpu size={9} />
-        <span>R3F Engine v1.0 · @react-three/fiber · @react-three/drei</span>
+        <span>R3F Engine v1.0 . @react-three/fiber . @react-three/drei</span>
       </div>
     </div>
   );

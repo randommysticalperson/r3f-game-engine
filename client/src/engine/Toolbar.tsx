@@ -1,8 +1,8 @@
 /**
- * R3F Game Engine — Toolbar
- * Design: Obsidian Terminal — ember orange play mode, electric cyan selections
+ * R3F Game Engine - Toolbar
+ * Design: Obsidian Terminal - ember orange play mode, electric cyan selections
+ * Scene persistence: tRPC + MySQL database via useScenePersistence hook
  */
-
 import { useState } from 'react';
 import {
   Play,
@@ -18,17 +18,18 @@ import {
   Globe,
   Box,
   ChevronDown,
-  Save,
-  FolderOpen,
   Download,
   Cpu,
   Trash2,
   RefreshCw,
   Shield,
-  Atom,
+  Database,
+  Loader2,
+  FolderOpen,
 } from 'lucide-react';
 import { useEngineStore } from './store';
-import { saveScene, loadScene, getSavedScenesList, deleteScene, exportSceneJSON, downloadJSON } from './sceneIO';
+import { exportSceneJSON, downloadJSON } from './sceneIO';
+import { useScenePersistence } from './useScenePersistence';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,8 +39,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 
-// ─── Toolbar button ───────────────────────────────────────────────────────────
-
+// --- Toolbar button ---
 function ToolbarBtn({
   onClick,
   active,
@@ -80,8 +80,7 @@ function Divider() {
   return <div className="w-px h-5 mx-1" style={{ background: '#2a2a38' }} />;
 }
 
-// ─── Main Toolbar ─────────────────────────────────────────────────────────────
-
+// --- Main Toolbar ---
 export default function Toolbar() {
   const {
     mode, setMode,
@@ -99,35 +98,52 @@ export default function Toolbar() {
     showPhysicsDebug, togglePhysicsDebug,
   } = useEngineStore();
 
+  const {
+    isSaving,
+    isLoading,
+    currentSceneId,
+    sceneList,
+    saveToDb,
+    loadFromDb,
+  } = useScenePersistence();
+
   const isPlay = mode === 'play';
   const isPause = mode === 'pause';
   const isEditor = mode === 'editor';
 
-  const handleSave = () => {
-    saveScene(sceneName, objects, rootIds);
-    toast.success(`Scene "${sceneName}" saved`, { description: 'Stored in browser localStorage' });
-    log(`Scene "${sceneName}" saved`, 'info', 'Editor');
-  };
+  const [editingName, setEditingName] = useState(false);
 
-  const handleLoad = (name?: string) => {
-    const scene = loadScene(name);
-    if (!scene) {
-      toast.error('No saved scene found');
-      return;
+  // --- Database save ---
+  const handleSaveToDb = async () => {
+    const id = await saveToDb();
+    if (id) {
+      toast.success(`Scene "${sceneName}" saved to database`, {
+        description: `Scene ID: ${id}`,
+      });
+    } else {
+      toast.error('Failed to save scene to database', {
+        description: 'Check the console for details',
+      });
     }
-    useEngineStore.setState({ objects: scene.objects, rootIds: scene.rootIds, selectedIds: [], sceneName: scene.name });
-    toast.success(`Scene "${scene.name}" loaded`);
-    log(`Scene "${scene.name}" loaded`, 'info', 'Editor');
   };
 
+  // --- Database load ---
+  const handleLoadFromDb = async (sceneId: string, name: string) => {
+    const ok = await loadFromDb(sceneId);
+    if (ok) {
+      toast.success(`Scene "${name}" loaded from database`);
+    } else {
+      toast.error(`Failed to load scene "${name}"`);
+    }
+  };
+
+  // --- Export JSON ---
   const handleExport = () => {
     const json = exportSceneJSON(sceneName, objects, rootIds);
-    downloadJSON(`${sceneName.replace(/\s+/g, '_')}.json`, json);
-    log(`Scene exported as JSON`, 'info', 'Editor');
+    downloadJSON(`${sceneName.replace(/\s+/g, '_')}.r3f.json`, json);
+    log('Scene exported as JSON', 'info', 'Editor');
     toast.success('Scene exported as JSON');
   };
-
-  const savedScenes = getSavedScenesList();
 
   return (
     <div
@@ -156,34 +172,47 @@ export default function Toolbar() {
             File <ChevronDown size={9} />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent style={{ background: '#111116', border: '1px solid #2a2a38', minWidth: 180 }}>
-          <DropdownMenuItem className="text-xs font-mono gap-2" onClick={handleSave}>
-            <Save size={11} /> Save Scene
+        <DropdownMenuContent style={{ background: '#111116', border: '1px solid #2a2a38', minWidth: 200 }}>
+          {/* Save to database */}
+          <DropdownMenuItem
+            className="text-xs font-mono gap-2"
+            onClick={handleSaveToDb}
+            disabled={isSaving}
+          >
+            {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Database size={11} />}
+            {currentSceneId ? 'Save to DB (Update)' : 'Save to DB (New)'}
           </DropdownMenuItem>
-          {savedScenes.length > 0 && (
+
+          {/* Load from database */}
+          {sceneList.length > 0 && (
             <>
               <DropdownMenuSeparator />
-              <div className="px-2 py-1 text-xs font-mono text-gray-600">Saved Scenes</div>
-              {savedScenes.map(s => (
-                <div key={s.name} className="flex items-center gap-1 px-2 py-1 hover:bg-white/5 rounded">
+              <div className="px-2 py-1 text-xs font-mono text-gray-600">
+                Saved Scenes ({sceneList.length})
+              </div>
+              {sceneList.map((scene: any) => (
+                <div key={scene.sceneId} className="flex items-center gap-1 px-2 py-1 hover:bg-white/5 rounded">
                   <button
-                    className="flex-1 text-left text-xs font-mono text-gray-300 hover:text-cyan-300"
-                    onClick={() => handleLoad(s.name)}
+                    className="flex-1 flex items-center gap-2 text-left text-xs font-mono text-gray-300 hover:text-cyan-300"
+                    onClick={() => handleLoadFromDb(scene.sceneId, scene.name)}
+                    disabled={isLoading}
                   >
-                    {s.name}
+                    {isLoading ? <Loader2 size={10} className="animate-spin" /> : <FolderOpen size={10} />}
+                    <span className="truncate max-w-28">{scene.name}</span>
                   </button>
-                  <button
-                    className="p-0.5 text-gray-600 hover:text-red-400"
-                    onClick={() => { deleteScene(s.name); toast.info(`Scene "${s.name}" deleted`); }}
-                  >
-                    <Trash2 size={9} />
-                  </button>
+                  <span className="text-xs font-mono opacity-30 ml-auto">
+                    {new Date(scene.updatedAt).toLocaleDateString()}
+                  </span>
                 </div>
               ))}
             </>
           )}
+
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-xs font-mono gap-2" onClick={() => { loadDefaultScene(); toast.info('Default scene loaded'); }}>
+          <DropdownMenuItem
+            className="text-xs font-mono gap-2"
+            onClick={() => { loadDefaultScene(); toast.info('Default scene loaded'); }}
+          >
             <RefreshCw size={11} /> Reset to Default Scene
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -261,8 +290,39 @@ export default function Toolbar() {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Scene name */}
-      <span className="text-xs font-mono text-gray-600 hidden lg:block mr-2 truncate max-w-32">{sceneName}</span>
+      {/* Scene name with DB indicator */}
+      <div className="flex items-center gap-1 mr-2">
+        {editingName ? (
+          <input
+            autoFocus
+            value={sceneName}
+            onChange={e => setSceneName(e.target.value)}
+            onBlur={() => setEditingName(false)}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingName(false); }}
+            className="h-6 px-1.5 rounded text-xs border outline-none"
+            style={{
+              background: '#1a1a2e',
+              border: '1px solid #00e5ff44',
+              color: '#c8d0e0',
+              fontFamily: 'JetBrains Mono, monospace',
+              width: 130,
+            }}
+          />
+        ) : (
+          <button
+            onClick={() => setEditingName(true)}
+            className="text-xs font-mono text-gray-600 hidden lg:block truncate max-w-32 hover:text-gray-300 transition-colors"
+            title="Click to rename scene"
+          >
+            {sceneName}
+          </button>
+        )}
+        {currentSceneId && (
+          <span title={`Saved to DB: ${currentSceneId}`}>
+            <Database size={10} style={{ color: '#00e5ff', opacity: 0.5 }} />
+          </span>
+        )}
+      </div>
 
       <Divider />
 

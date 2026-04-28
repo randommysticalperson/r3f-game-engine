@@ -1,6 +1,6 @@
 /**
- * R3F Game Engine — Core Store
- * Design: Obsidian Terminal — dark industrial IDE
+ * R3F Game Engine -- Core Store
+ * Design: Obsidian Terminal -- dark industrial IDE
  *
  * Entity-Component-System inspired scene graph using Zustand.
  * Physics powered by @react-three/rapier (Rapier WASM engine).
@@ -9,7 +9,7 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// --- Types --------------------------------------------------------------------
 
 export type Vec3 = [number, number, number];
 
@@ -64,7 +64,7 @@ export interface ScriptComponent {
   enabled: boolean;
 }
 
-// ─── Rapier physics types ─────────────────────────────────────────────────────
+// --- Rapier physics types -----------------------------------------------------
 
 export type RigidBodyType = 'dynamic' | 'fixed' | 'kinematicPosition' | 'kinematicVelocity';
 export type ColliderShape = 'cuboid' | 'ball' | 'capsule' | 'cylinder' | 'cone';
@@ -135,7 +135,7 @@ export interface EditorCamera {
   target: Vec3;
 }
 
-// ─── Store Interface ──────────────────────────────────────────────────────────
+// --- Store Interface ----------------------------------------------------------
 
 export interface EngineStore {
   objects: Record<string, SceneObject>;
@@ -198,7 +198,7 @@ export interface EngineStore {
   setSceneName: (name: string) => void;
 }
 
-// ─── Default factories ────────────────────────────────────────────────────────
+// --- Default factories --------------------------------------------------------
 
 export function makeDefaultTransform(): TransformComponent {
   return { type: 'transform', position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] };
@@ -224,7 +224,7 @@ function makeObject(partial: Partial<SceneObject> = {}): SceneObject {
   return { id: nanoid(8), name: 'GameObject', parentId: null, childIds: [], active: true, locked: false, components: { transform: makeDefaultTransform() }, tags: [], ...partial };
 }
 
-// ─── Default scene ────────────────────────────────────────────────────────────
+// --- Default scene ------------------------------------------------------------
 
 function buildDefaultScene(): { objects: Record<string, SceneObject>; rootIds: string[] } {
   const floor = makeObject({
@@ -290,7 +290,7 @@ function buildDefaultScene(): { objects: Record<string, SceneObject>; rootIds: s
   };
 }
 
-// ─── Store ────────────────────────────────────────────────────────────────────
+// --- Store --------------------------------------------------------------------
 
 const { objects: defaultObjects, rootIds: defaultRootIds } = buildDefaultScene();
 
@@ -445,9 +445,9 @@ export const useEngineStore = create<EngineStore>()(
     setMode: (mode) => {
       const prev = get().mode;
       set({ mode });
-      if (mode === 'play' && prev !== 'play') get().log('▶ Play mode started — Rapier physics active', 'info', 'Engine');
-      else if (mode === 'editor' && prev !== 'editor') get().log('■ Stopped — returned to editor', 'info', 'Engine');
-      else if (mode === 'pause') get().log('⏸ Paused', 'info', 'Engine');
+      if (mode === 'play' && prev !== 'play') get().log('? Play mode started -- Rapier physics active', 'info', 'Engine');
+      else if (mode === 'editor' && prev !== 'editor') get().log('? Stopped -- returned to editor', 'info', 'Engine');
+      else if (mode === 'pause') get().log('? Paused', 'info', 'Engine');
     },
 
     setTransformMode: (mode) => set({ transformMode: mode }),

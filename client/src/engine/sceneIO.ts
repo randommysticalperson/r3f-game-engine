@@ -1,5 +1,5 @@
 /**
- * R3F Game Engine — Scene Serialization
+ * R3F Game Engine -- Scene Serialization
  * Save/load scenes to/from localStorage
  */
 
