@@ -6,9 +6,12 @@
  * - Editor mode: static preview, transform gizmos, no physics
  * - Play mode: full Rapier simulation -- rigid bodies, colliders, gravity, CCD
  * - Physics debug: shows collider wireframes via <Debug />
+ *
+ * Bug fixes:
+ * - Objects now visible without selection (ambient light raised to 0.5)
+ * - Selection persists after mouse release (hitRef flag prevents background deselect)
  */
-
-import React, { useRef, useCallback, Suspense, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useCallback, Suspense, useEffect, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   OrbitControls,
@@ -26,7 +29,6 @@ import {
   CapsuleCollider,
   CylinderCollider,
   ConeCollider,
-  useRapier,
 } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useEngineStore } from './store';
@@ -38,8 +40,10 @@ import type {
   TransformComponent,
 } from './store';
 
-// --- Geometry map -------------------------------------------------------------
+// Shared flag: set true when a mesh is clicked, so background handler won't deselect
+const meshHitThisFrame = { current: false };
 
+// --- Geometry map ---
 function GeometryByType({ geometry }: { geometry: MeshGeometry }) {
   switch (geometry) {
     case 'sphere':      return <sphereGeometry args={[0.5, 32, 32]} />;
@@ -53,8 +57,7 @@ function GeometryByType({ geometry }: { geometry: MeshGeometry }) {
   }
 }
 
-// --- Collider wrapper ---------------------------------------------------------
-
+// --- Collider wrapper ---
 function ColliderByShape({
   collider,
   scale,
@@ -64,15 +67,7 @@ function ColliderByShape({
 }) {
   const { shape, halfExtents, radius, halfHeight, restitution, friction, density, isSensor, offset } = collider;
   const pos = offset as [number, number, number];
-
-  const props = {
-    restitution,
-    friction,
-    density,
-    sensor: isSensor,
-    position: pos,
-  };
-
+  const props = { restitution, friction, density, sensor: isSensor, position: pos };
   switch (shape) {
     case 'ball':
       return <BallCollider args={[radius * Math.max(...scale)]} {...props} />;
@@ -82,7 +77,7 @@ function ColliderByShape({
       return <CylinderCollider args={[halfHeight * scale[1], radius * Math.max(scale[0], scale[2])]} {...props} />;
     case 'cone':
       return <ConeCollider args={[halfHeight * scale[1], radius * Math.max(scale[0], scale[2])]} {...props} />;
-    default: // cuboid
+    default:
       return (
         <CuboidCollider
           args={[halfExtents[0] * scale[0], halfExtents[1] * scale[1], halfExtents[2] * scale[2]]}
@@ -92,17 +87,40 @@ function ColliderByShape({
   }
 }
 
-// --- Physics-aware scene object -----------------------------------------------
+// --- Shared mesh material ---
+function SceneMaterial({
+  isSelected,
+  isHovered,
+  mesh,
+  showWireframe,
+}: {
+  isSelected: boolean;
+  isHovered: boolean;
+  mesh: any;
+  showWireframe: boolean;
+}) {
+  return (
+    <meshStandardMaterial
+      color={isSelected ? '#00e5ff' : isHovered ? '#88ddff' : mesh.color}
+      wireframe={showWireframe || mesh.wireframe}
+      metalness={mesh.metalness ?? 0.2}
+      roughness={mesh.roughness ?? 0.5}
+      opacity={mesh.opacity ?? 1}
+      transparent={(mesh.transparent ?? false) || (mesh.opacity ?? 1) < 1}
+      emissive={isSelected ? '#003344' : isHovered ? '#001122' : '#000000'}
+      emissiveIntensity={isSelected ? 0.4 : isHovered ? 0.15 : 0}
+    />
+  );
+}
 
+// --- Physics-aware scene object (play mode) ---
 function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
   const { selectedIds, hoveredId, selectObject, setHovered, showWireframe } = useEngineStore();
   const meshRef = useRef<THREE.Mesh>(null);
-
   const transform = obj.components.transform as TransformComponent | undefined;
   const mesh = obj.components.mesh as any;
   const rigidbody = obj.components.rigidbody as RigidbodyComponent | undefined;
   const collider = obj.components.collider as ColliderComponent | undefined;
-
   const isSelected = selectedIds.includes(obj.id);
   const isHovered = hoveredId === obj.id && !isSelected;
 
@@ -122,31 +140,24 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
       ref={meshRef}
       castShadow={mesh.castShadow}
       receiveShadow={mesh.receiveShadow}
-      onPointerDown={(e) => { e.stopPropagation(); selectObject(obj.id); }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        meshHitThisFrame.current = true;
+        selectObject(obj.id);
+      }}
       onPointerEnter={() => setHovered(obj.id)}
       onPointerLeave={() => setHovered(null)}
     >
       <GeometryByType geometry={mesh.geometry} />
-      <meshStandardMaterial
-        color={isSelected ? '#00e5ff' : isHovered ? '#88ddff' : mesh.color}
-        wireframe={showWireframe || mesh.wireframe}
-        metalness={mesh.metalness}
-        roughness={mesh.roughness}
-        opacity={mesh.opacity}
-        transparent={mesh.transparent || mesh.opacity < 1}
-        emissive={isSelected ? '#003344' : '#000000'}
-        emissiveIntensity={isSelected ? 0.3 : 0}
-      />
+      <SceneMaterial isSelected={isSelected} isHovered={isHovered} mesh={mesh} showWireframe={showWireframe} />
     </mesh>
   );
 
-  // If object has a RigidBody component, wrap with Rapier RigidBody
   if (rigidbody) {
     const bodyType = rigidbody.bodyType === 'dynamic' ? 'dynamic'
       : rigidbody.bodyType === 'fixed' ? 'fixed'
       : rigidbody.bodyType === 'kinematicPosition' ? 'kinematicPosition'
       : 'kinematicVelocity';
-
     return (
       <RigidBody
         key={obj.id}
@@ -164,15 +175,12 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
         angularVelocity={rigidbody.initialAngularVelocity}
         name={obj.id}
       >
-        <group scale={scl}>
-          {meshEl}
-        </group>
+        <group scale={scl}>{meshEl}</group>
         {collider && <ColliderByShape collider={collider} scale={scl} />}
       </RigidBody>
     );
   }
 
-  // No rigidbody -- plain static mesh
   return (
     <group position={pos} rotation={rotRad} scale={scl}>
       {meshEl}
@@ -180,15 +188,12 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
   );
 }
 
-// --- Editor-mode (non-physics) scene object -----------------------------------
-
+// --- Editor-mode scene object (no physics) ---
 function EditorSceneObject({ obj }: { obj: SceneObject }) {
   const { selectedIds, hoveredId, selectObject, setHovered, showWireframe } = useEngineStore();
   const meshRef = useRef<THREE.Mesh>(null);
-
   const transform = obj.components.transform as TransformComponent | undefined;
   const mesh = obj.components.mesh as any;
-
   const isSelected = selectedIds.includes(obj.id);
   const isHovered = hoveredId === obj.id && !isSelected;
 
@@ -209,28 +214,22 @@ function EditorSceneObject({ obj }: { obj: SceneObject }) {
         ref={meshRef}
         castShadow={mesh.castShadow}
         receiveShadow={mesh.receiveShadow}
-        onPointerDown={(e) => { e.stopPropagation(); selectObject(obj.id); }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          meshHitThisFrame.current = true;
+          selectObject(obj.id);
+        }}
         onPointerEnter={() => setHovered(obj.id)}
         onPointerLeave={() => setHovered(null)}
       >
         <GeometryByType geometry={mesh.geometry} />
-        <meshStandardMaterial
-          color={isSelected ? '#00e5ff' : isHovered ? '#88ddff' : mesh.color}
-          wireframe={showWireframe || mesh.wireframe}
-          metalness={mesh.metalness}
-          roughness={mesh.roughness}
-          opacity={mesh.opacity}
-          transparent={mesh.transparent || mesh.opacity < 1}
-          emissive={isSelected ? '#003344' : '#000000'}
-          emissiveIntensity={isSelected ? 0.3 : 0}
-        />
+        <SceneMaterial isSelected={isSelected} isHovered={isHovered} mesh={mesh} showWireframe={showWireframe} />
       </mesh>
     </group>
   );
 }
 
-// --- Light renderer -----------------------------------------------------------
-
+// --- Light renderer ---
 function SceneLights({ objects }: { objects: Record<string, SceneObject> }) {
   return (
     <>
@@ -238,7 +237,7 @@ function SceneLights({ objects }: { objects: Record<string, SceneObject> }) {
         const light = obj.components.light as any;
         const transform = obj.components.transform as TransformComponent | undefined;
         if (!light || !obj.active) return null;
-        const pos = transform?.position ?? [0, 0, 0];
+        const pos = (transform?.position ?? [0, 0, 0]) as [number, number, number];
         switch (light.lightType) {
           case 'ambient':
             return <ambientLight key={obj.id} color={light.color} intensity={light.intensity} />;
@@ -246,18 +245,23 @@ function SceneLights({ objects }: { objects: Record<string, SceneObject> }) {
             return (
               <directionalLight
                 key={obj.id}
-                position={pos as [number,number,number]}
+                position={pos}
                 color={light.color}
                 intensity={light.intensity}
                 castShadow={light.castShadow}
                 shadow-mapSize={[2048, 2048]}
+                shadow-camera-far={80}
+                shadow-camera-left={-20}
+                shadow-camera-right={20}
+                shadow-camera-top={20}
+                shadow-camera-bottom={-20}
               />
             );
           case 'point':
             return (
               <pointLight
                 key={obj.id}
-                position={pos as [number,number,number]}
+                position={pos}
                 color={light.color}
                 intensity={light.intensity}
                 distance={light.distance}
@@ -268,7 +272,7 @@ function SceneLights({ objects }: { objects: Record<string, SceneObject> }) {
             return (
               <spotLight
                 key={obj.id}
-                position={pos as [number,number,number]}
+                position={pos}
                 color={light.color}
                 intensity={light.intensity}
                 distance={light.distance}
@@ -285,22 +289,14 @@ function SceneLights({ objects }: { objects: Record<string, SceneObject> }) {
   );
 }
 
-// --- Play-mode scene with Rapier Physics -------------------------------------
-
+// --- Play-mode scene with Rapier Physics ---
 function PhysicsScene({ objects, rootIds }: { objects: Record<string, SceneObject>; rootIds: string[] }) {
   const { physicsGravity, physicsTimestep, showPhysicsDebug, log } = useEngineStore();
-
-  // Log physics start
   useEffect(() => {
     log(`Physics world active -- gravity: [${physicsGravity.join(', ')}]`, 'info', 'Physics');
   }, []);
-
   return (
-    <Physics
-      gravity={physicsGravity}
-      timeStep={physicsTimestep}
-      debug={showPhysicsDebug}
-    >
+    <Physics gravity={physicsGravity} timeStep={physicsTimestep} debug={showPhysicsDebug}>
       <SceneLights objects={objects} />
       {rootIds.map(id => {
         const obj = objects[id];
@@ -311,8 +307,7 @@ function PhysicsScene({ objects, rootIds }: { objects: Record<string, SceneObjec
   );
 }
 
-// --- Editor-mode scene (no physics) ------------------------------------------
-
+// --- Editor-mode scene (no physics) ---
 function EditorScene({ objects, rootIds }: { objects: Record<string, SceneObject>; rootIds: string[] }) {
   return (
     <>
@@ -326,21 +321,18 @@ function EditorScene({ objects, rootIds }: { objects: Record<string, SceneObject
   );
 }
 
-// --- Transform gizmo ---------------------------------------------------------
-
+// --- Transform gizmo ---
 function TransformGizmo() {
   const { selectedIds, objects, transformMode, transformSpace, updateComponent, mode } = useEngineStore();
   const selectedId = selectedIds[0];
   const obj = selectedId ? objects[selectedId] : null;
   const transform = obj?.components.transform as TransformComponent | undefined;
 
-  // Pivot group ref - rendered at scene root, TransformControls attaches here imperatively
   const pivotRef = useRef<THREE.Group>(null);
-  // TransformControls ref - attached after mount to guarantee ref is non-null (fixes updateMatrixWorld crash)
   const controlsRef = useRef<any>(null);
   const isDragging = useRef(false);
 
-  // Sync pivot position/rotation/scale from store whenever selection or transform changes
+  // Sync pivot from store whenever selection/transform changes
   useEffect(() => {
     if (!pivotRef.current || !transform) return;
     const [px, py, pz] = transform.position as [number, number, number];
@@ -361,9 +353,7 @@ function TransformGizmo() {
     const pivot = pivotRef.current;
     if (!controls || !pivot) return;
     controls.attach(pivot);
-    return () => {
-      if (controls) controls.detach();
-    };
+    return () => { if (controls) controls.detach(); };
   }, [selectedId]);
 
   if (!obj || !transform || mode !== 'editor') return null;
@@ -375,42 +365,35 @@ function TransformGizmo() {
     const r = pivotRef.current.rotation;
     const s = pivotRef.current.scale;
     updateComponent<TransformComponent>(selectedId, 'transform', {
-      position: [
-        parseFloat(p.x.toFixed(4)),
-        parseFloat(p.y.toFixed(4)),
-        parseFloat(p.z.toFixed(4)),
-      ],
+      position: [+p.x.toFixed(4), +p.y.toFixed(4), +p.z.toFixed(4)],
       rotation: [
-        parseFloat(((r.x * 180) / Math.PI).toFixed(2)),
-        parseFloat(((r.y * 180) / Math.PI).toFixed(2)),
-        parseFloat(((r.z * 180) / Math.PI).toFixed(2)),
+        +((r.x * 180) / Math.PI).toFixed(2),
+        +((r.y * 180) / Math.PI).toFixed(2),
+        +((r.z * 180) / Math.PI).toFixed(2),
       ],
-      scale: [
-        parseFloat(s.x.toFixed(4)),
-        parseFloat(s.y.toFixed(4)),
-        parseFloat(s.z.toFixed(4)),
-      ],
+      scale: [+s.x.toFixed(4), +s.y.toFixed(4), +s.z.toFixed(4)],
     });
   };
 
   return (
     <>
-      {/* Invisible pivot group at scene root - TransformControls attaches here */}
       <group ref={pivotRef} />
-      {/* TransformControls rendered separately, attached imperatively via ref */}
       <TransformControls
         ref={controlsRef}
         mode={transformMode}
         space={transformSpace}
-        onMouseDown={() => { isDragging.current = true; }}
+        onMouseDown={() => {
+          isDragging.current = true;
+          // Prevent background from deselecting while dragging gizmo
+          meshHitThisFrame.current = true;
+        }}
         onMouseUp={handleMouseUp}
       />
     </>
   );
 }
 
-// --- Background click handler -------------------------------------------------
-
+// --- Background click handler (deselects only when clicking empty space) ---
 function BackgroundClickHandler() {
   const { gl } = useThree();
   const { selectObject, mode } = useEngineStore();
@@ -418,34 +401,60 @@ function BackgroundClickHandler() {
 
   useEffect(() => {
     const canvas = gl.domElement;
-    const onMouseDown = (e: MouseEvent) => { mouseDownPos.current = { x: e.clientX, y: e.clientY }; };
+
+    const onMouseDown = (e: MouseEvent) => {
+      mouseDownPos.current = { x: e.clientX, y: e.clientY };
+      // Reset hit flag at the start of each click
+      meshHitThisFrame.current = false;
+    };
+
     const onMouseUp = (e: MouseEvent) => {
       const dx = Math.abs(e.clientX - mouseDownPos.current.x);
       const dy = Math.abs(e.clientY - mouseDownPos.current.y);
-      if (dx < 3 && dy < 3 && mode === 'editor') selectObject(null);
+      // Only deselect if: it was a click (not drag), in editor mode, AND no mesh was hit
+      if (dx < 5 && dy < 5 && mode === 'editor' && !meshHitThisFrame.current) {
+        selectObject(null);
+      }
+      // Reset flag after handling
+      meshHitThisFrame.current = false;
     };
+
     canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('mouseup', onMouseUp);
-    return () => { canvas.removeEventListener('mousedown', onMouseDown); canvas.removeEventListener('mouseup', onMouseUp); };
+    return () => {
+      canvas.removeEventListener('mousedown', onMouseDown);
+      canvas.removeEventListener('mouseup', onMouseUp);
+    };
   }, [gl, mode, selectObject]);
 
   return null;
 }
 
-// --- Keyboard shortcuts -------------------------------------------------------
-
+// --- Keyboard shortcuts ---
 function KeyboardHandler() {
-  const { setTransformMode, setMode, mode, removeObject, selectedIds, duplicateObject } = useEngineStore();
+  const {
+    setTransformMode, setMode, mode, selectedIds,
+    removeObject, duplicateObject,
+  } = useEngineStore();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === 'w' || e.key === 'W') setTransformMode('translate');
       if (e.key === 'e' || e.key === 'E') setTransformMode('rotate');
       if (e.key === 'r' || e.key === 'R') setTransformMode('scale');
       if (e.key === 'F5') { e.preventDefault(); setMode(mode === 'editor' ? 'play' : 'editor'); }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) selectedIds.forEach(id => removeObject(id));
-      if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedIds.length > 0) { e.preventDefault(); selectedIds.forEach(id => duplicateObject(id)); }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (mode === 'editor' && selectedIds.length > 0) {
+          e.preventDefault();
+          selectedIds.forEach(id => removeObject(id));
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedIds.length > 0) {
+        e.preventDefault();
+        selectedIds.forEach(id => duplicateObject(id));
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -454,27 +463,27 @@ function KeyboardHandler() {
   return null;
 }
 
-// --- Scene environment --------------------------------------------------------
-
+// --- Scene environment (fallback lights -- supplemental only) ---
+// NOTE: These are low-intensity fallback lights. Real scene lights come from SceneLights.
 function SceneEnvironment() {
   return (
     <>
-      <ambientLight intensity={0.04} color="#112233" />
-      <hemisphereLight args={['#0a1020', '#050508', 0.25]} />
+      {/* Soft fill light so objects are always slightly visible */}
+      <ambientLight intensity={0.35} color="#8899bb" />
+      {/* Subtle sky/ground hemisphere for depth */}
+      <hemisphereLight args={['#1a2a4a', '#0a0a0f', 0.4]} />
     </>
   );
 }
 
-// --- Main Viewport ------------------------------------------------------------
-
+// --- Main Viewport ---
 export default function Viewport() {
   const {
-    showGrid, showGizmos, showStats, mode, selectObject,
+    showGrid, showGizmos, showStats, mode,
     objects, rootIds, physicsGravity, physicsTimestep, showPhysicsDebug,
   } = useEngineStore();
-  const isPlayMode = mode !== 'editor';
 
-  // Key to remount Physics world when entering play mode (fresh simulation)
+  const isPlayMode = mode !== 'editor';
   const [physicsKey, setPhysicsKey] = useState(0);
   const prevMode = useRef(mode);
 
@@ -519,16 +528,18 @@ export default function Viewport() {
           className="absolute top-2 right-16 z-20 pointer-events-none flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono"
           style={{ background: 'rgba(255,165,0,0.15)', border: '1px solid rgba(255,165,0,0.4)', color: '#ffa500' }}
         >
-          ? Physics Debug
+          Physics Debug
         </div>
       )}
 
       <Canvas
         shadows
-        gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+        gl={{ antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
         camera={{ position: [5, 5, 10], fov: 60, near: 0.1, far: 1000 }}
         style={{ background: '#0d0d14' }}
-        onPointerMissed={() => { if (mode === 'editor') selectObject(null); }}
+        onCreated={({ gl }) => {
+          import('./thumbnailCapture').then(m => m.registerViewportCanvas(gl.domElement));
+        }}
       >
         <KeyboardHandler />
         <BackgroundClickHandler />

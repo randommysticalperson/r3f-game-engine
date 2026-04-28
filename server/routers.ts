@@ -11,6 +11,7 @@ import {
   updateScene,
   deleteScene,
 } from "./db";
+import { storagePut } from "./storage";
 
 export const appRouter = router({
   system: systemRouter,
@@ -55,6 +56,7 @@ export const appRouter = router({
           sceneData: z.any(),
           physicsSettings: z.any().optional(),
           isPublic: z.boolean().optional(),
+          thumbnailUrl: z.string().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -65,6 +67,7 @@ export const appRouter = router({
           sceneData: input.sceneData,
           physicsSettings: input.physicsSettings,
           isPublic: input.isPublic ?? false,
+          thumbnailUrl: input.thumbnailUrl,
         });
         return scene;
       }),
@@ -78,6 +81,7 @@ export const appRouter = router({
           sceneData: z.any().optional(),
           physicsSettings: z.any().optional(),
           isPublic: z.boolean().optional(),
+          thumbnailUrl: z.string().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -95,8 +99,29 @@ export const appRouter = router({
           sceneData: input.sceneData,
           physicsSettings: input.physicsSettings,
           isPublic: input.isPublic,
+          thumbnailUrl: input.thumbnailUrl,
         });
         return updated;
+      }),
+
+    /** Upload a scene thumbnail (base64 data URL) and return storage URL */
+    uploadThumbnail: publicProcedure
+      .input(z.object({ dataUrl: z.string() }))
+      .mutation(async ({ input }) => {
+        try {
+          // Parse base64 data URL: data:image/jpeg;base64,<data>
+          const matches = input.dataUrl.match(/^data:([a-zA-Z0-9+/]+\/[a-zA-Z0-9+/]+);base64,(.+)$/);
+          if (!matches) throw new Error('Invalid data URL format');
+          const mimeType = matches[1];
+          const base64Data = matches[2];
+          const buffer = Buffer.from(base64Data, 'base64');
+          const key = `thumbnails/scene-${Date.now()}.jpg`;
+          const { url } = await storagePut(key, buffer, mimeType);
+          return { url };
+        } catch (err) {
+          console.error('[uploadThumbnail] Failed:', err);
+          return { url: null };
+        }
       }),
 
     /** Delete a scene */

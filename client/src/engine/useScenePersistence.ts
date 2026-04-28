@@ -8,6 +8,7 @@ import { useState, useCallback } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useEngineStore } from './store';
 import type { SceneObject } from './store';
+import { captureViewportThumbnail } from './thumbnailCapture';
 
 export interface SceneSaveData {
   name: string;
@@ -29,6 +30,7 @@ export function useScenePersistence() {
 
   const createMutation = trpc.scene.create.useMutation();
   const updateMutation = trpc.scene.update.useMutation();
+  const uploadThumbnailMutation = trpc.scene.uploadThumbnail.useMutation();
 
   const {
     sceneName,
@@ -52,6 +54,19 @@ export function useScenePersistence() {
         physicsTimestep,
       };
 
+      // Capture viewport thumbnail
+      let thumbnailUrl: string | undefined;
+      try {
+        const dataUrl = captureViewportThumbnail(0.7);
+        if (dataUrl) {
+          // Upload thumbnail to server via tRPC
+          const uploadResult = await uploadThumbnailMutation.mutateAsync({ dataUrl });
+          thumbnailUrl = uploadResult?.url ?? undefined;
+        }
+      } catch {
+        // Thumbnail capture is non-critical, continue without it
+      }
+
       let savedId: string | null = null;
 
       if (currentSceneId) {
@@ -61,6 +76,7 @@ export function useScenePersistence() {
           name: sceneName,
           sceneData,
           physicsSettings: { gravity: physicsGravity, timestep: physicsTimestep },
+          thumbnailUrl,
         });
         savedId = result?.sceneId ?? currentSceneId;
         log(`Scene "${sceneName}" updated in database (ID: ${savedId})`, 'info', 'DB');
@@ -71,6 +87,7 @@ export function useScenePersistence() {
           sceneData,
           physicsSettings: { gravity: physicsGravity, timestep: physicsTimestep },
           isPublic: false,
+          thumbnailUrl,
         });
         savedId = result?.sceneId ?? null;
         if (savedId) setCurrentSceneId(savedId);

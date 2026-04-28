@@ -4,6 +4,8 @@
  * Scene persistence: tRPC + MySQL database via useScenePersistence hook
  */
 import { useState } from 'react';
+import { useAuth } from '@/_core/hooks/useAuth';
+import { getLoginUrl } from '@/const';
 import {
   Play,
   Pause,
@@ -26,6 +28,11 @@ import {
   Database,
   Loader2,
   FolderOpen,
+  Undo2,
+  Redo2,
+  User,
+  LogIn,
+  LogOut,
 } from 'lucide-react';
 import { useEngineStore } from './store';
 import { exportSceneJSON, downloadJSON } from './sceneIO';
@@ -80,6 +87,53 @@ function Divider() {
   return <div className="w-px h-5 mx-1" style={{ background: '#2a2a38' }} />;
 }
 
+// --- User auth button ---
+function UserButton() {
+  const { user, loading, isAuthenticated, logout } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center w-7 h-7">
+        <Loader2 size={12} className="animate-spin text-gray-600" />
+      </div>
+    );
+  }
+  if (!isAuthenticated) {
+    return (
+      <button
+        className="flex items-center gap-1.5 px-2 h-7 text-xs font-mono text-gray-500 hover:text-cyan-300 hover:bg-white/5 rounded transition-colors border border-transparent hover:border-cyan-900/60"
+        onClick={() => { window.location.href = getLoginUrl(); }}
+        title="Sign in with Manus"
+      >
+        <LogIn size={11} />
+        <span className="hidden lg:block">Sign In</span>
+      </button>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex items-center gap-1.5 px-2 h-7 text-xs font-mono text-cyan-400 hover:text-cyan-200 hover:bg-white/5 rounded transition-colors border border-transparent hover:border-cyan-900/60"
+          title={`Signed in as ${user?.name ?? user?.email ?? 'User'}`}
+        >
+          <User size={11} />
+          <span className="hidden lg:block max-w-20 truncate">{user?.name ?? 'User'}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" style={{ background: '#111116', border: '1px solid #2a2a38', minWidth: 160 }}>
+        <div className="px-2 py-1.5">
+          <div className="text-xs font-mono text-gray-300 truncate">{user?.name}</div>
+          {user?.email && <div className="text-xs font-mono text-gray-600 truncate">{user.email}</div>}
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="text-xs font-mono gap-2 text-red-400" onClick={() => logout()}>
+          <LogOut size={11} /> Sign Out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 // --- Main Toolbar ---
 export default function Toolbar() {
   const {
@@ -96,6 +150,7 @@ export default function Toolbar() {
     loadDefaultScene,
     log,
     showPhysicsDebug, togglePhysicsDebug,
+    undo, redo, canUndo, canRedo,
   } = useEngineStore();
 
   const {
@@ -191,18 +246,23 @@ export default function Toolbar() {
                 Saved Scenes ({sceneList.length})
               </div>
               {sceneList.map((scene: any) => (
-                <div key={scene.sceneId} className="flex items-center gap-1 px-2 py-1 hover:bg-white/5 rounded">
-                  <button
-                    className="flex-1 flex items-center gap-2 text-left text-xs font-mono text-gray-300 hover:text-cyan-300"
-                    onClick={() => handleLoadFromDb(scene.sceneId, scene.name)}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? <Loader2 size={10} className="animate-spin" /> : <FolderOpen size={10} />}
-                    <span className="truncate max-w-28">{scene.name}</span>
-                  </button>
-                  <span className="text-xs font-mono opacity-30 ml-auto">
-                    {new Date(scene.updatedAt).toLocaleDateString()}
-                  </span>
+                <div key={scene.sceneId} className="flex items-center gap-1 px-2 py-1 hover:bg-white/5 rounded cursor-pointer" onClick={() => handleLoadFromDb(scene.sceneId, scene.name)}>
+                  {scene.thumbnailUrl ? (
+                    <img
+                      src={scene.thumbnailUrl}
+                      alt={scene.name}
+                      className="w-10 h-7 rounded object-cover shrink-0"
+                      style={{ border: '1px solid #2a2a38' }}
+                    />
+                  ) : (
+                    <div className="w-10 h-7 rounded shrink-0 flex items-center justify-center" style={{ background: '#1a1a2e', border: '1px solid #2a2a38' }}>
+                      {isLoading ? <Loader2 size={10} className="animate-spin" /> : <FolderOpen size={10} className="text-gray-600" />}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-mono text-gray-300 truncate max-w-28">{scene.name}</div>
+                    <div className="text-xs font-mono opacity-30">{new Date(scene.updatedAt).toLocaleDateString()}</div>
+                  </div>
                 </div>
               ))}
             </>
@@ -267,6 +327,16 @@ export default function Toolbar() {
           title="Snap value"
         />
       )}
+
+      <Divider />
+
+      {/* Undo / Redo */}
+      <ToolbarBtn onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">
+        <Undo2 size={13} />
+      </ToolbarBtn>
+      <ToolbarBtn onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)">
+        <Redo2 size={13} />
+      </ToolbarBtn>
 
       <Divider />
 
@@ -347,6 +417,10 @@ export default function Toolbar() {
           </>
         )}
       </div>
+
+      {/* User auth */}
+      <Divider />
+      <UserButton />
 
       {/* Play mode badge */}
       {!isEditor && (

@@ -200,7 +200,7 @@ function AddObjectMenu() {
       name: names[geometry] ?? 'Mesh',
       components: {
         transform: { type: 'transform', position: [0, 0.5, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
-        mesh: makeDefaultMesh(geometry as any),
+        mesh: { ...makeDefaultMesh(), geometry: geometry as any },
       },
     });
   };

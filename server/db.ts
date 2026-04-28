@@ -133,6 +133,7 @@ export async function createScene(data: {
   sceneData: unknown;
   physicsSettings?: unknown;
   isPublic?: boolean;
+  thumbnailUrl?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -146,6 +147,7 @@ export async function createScene(data: {
     sceneData: data.sceneData as any,
     physicsSettings: (data.physicsSettings ?? null) as any,
     isPublic: data.isPublic ?? false,
+    thumbnailUrl: data.thumbnailUrl ?? null,
   });
 
   return getSceneById(sceneId);
