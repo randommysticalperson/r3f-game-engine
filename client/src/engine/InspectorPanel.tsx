@@ -397,7 +397,6 @@ function AddComponentMenu({ id, existingTypes }: { id: string; existingTypes: st
     { type: 'script', label: 'Script', icon: <Code2 size={11} />, make: () => ({ type: 'script' as const, code: '// onUpdate(delta) {\n//   this.rotation.y += delta;\n// }', enabled: true }) },
     { type: 'rigidbody', label: 'Rigidbody', icon: <Zap size={11} />, make: () => makeDefaultRigidbody() },
     { type: 'collider', label: 'Collider', icon: <Shield size={11} />, make: () => makeDefaultCollider() },
-    { type: 'cauchyStress', label: 'Cauchy Stress Tensor', icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', color: '#ff6b35' }}>sigma</span>, make: () => makeDefaultCauchyStress() },
   ].filter(c => !existingTypes.includes(c.type));
   if (available.length === 0) return null;
   return (
