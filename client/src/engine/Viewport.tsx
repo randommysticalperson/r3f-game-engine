@@ -68,8 +68,7 @@ function computeStressColor(comp: CauchyStressComponent): string {
 }
 import MohrCircleHUD from './MohrCircleHUD';
 
-// Shared flag: set true when a mesh is clicked, so background handler won't deselect
-const meshHitThisFrame = { current: false };
+// (meshHitThisFrame removed — deselection now handled via Canvas onPointerMissed)
 // Registry: maps object id -> RapierRigidBody ref for stress coupling
 const rigidBodyRegistry = new Map<string, RapierRigidBody>();
 
@@ -383,7 +382,6 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
       receiveShadow={mesh.receiveShadow}
       onPointerDown={(e) => {
         e.stopPropagation();
-        meshHitThisFrame.current = true;
         selectObject(obj.id);
       }}
       onPointerEnter={() => setHovered(obj.id)}
@@ -482,7 +480,6 @@ function EditorSceneObject({ obj }: { obj: SceneObject }) {
           receiveShadow={mesh.receiveShadow}
           onPointerDown={(e) => {
             e.stopPropagation();
-            meshHitThisFrame.current = true;
             selectObject(obj.id);
           }}
           onPointerEnter={() => setHovered(obj.id)}
@@ -790,8 +787,6 @@ function TransformGizmo() {
         space={transformSpace}
         onMouseDown={() => {
           isDragging.current = true;
-          // Prevent background from deselecting while dragging gizmo
-          meshHitThisFrame.current = true;
         }}
         onMouseUp={handleMouseUp}
       />
@@ -799,42 +794,7 @@ function TransformGizmo() {
   );
 }
 
-// --- Background click handler (deselects only when clicking empty space) ---
-function BackgroundClickHandler() {
-  const { gl } = useThree();
-  const { selectObject, mode } = useEngineStore();
-  const mouseDownPos = useRef({ x: 0, y: 0 });
-
-  useEffect(() => {
-    const canvas = gl.domElement;
-
-    const onMouseDown = (e: MouseEvent) => {
-      mouseDownPos.current = { x: e.clientX, y: e.clientY };
-      // Reset hit flag at the start of each click
-      meshHitThisFrame.current = false;
-    };
-
-    const onMouseUp = (e: MouseEvent) => {
-      const dx = Math.abs(e.clientX - mouseDownPos.current.x);
-      const dy = Math.abs(e.clientY - mouseDownPos.current.y);
-      // Only deselect if: it was a click (not drag), in editor mode, AND no mesh was hit
-      if (dx < 5 && dy < 5 && mode === 'editor' && !meshHitThisFrame.current) {
-        selectObject(null);
-      }
-      // Reset flag after handling
-      meshHitThisFrame.current = false;
-    };
-
-    canvas.addEventListener('mousedown', onMouseDown);
-    canvas.addEventListener('mouseup', onMouseUp);
-    return () => {
-      canvas.removeEventListener('mousedown', onMouseDown);
-      canvas.removeEventListener('mouseup', onMouseUp);
-    };
-  }, [gl, mode, selectObject]);
-
-  return null;
-}
+// BackgroundClickHandler removed — deselection now handled via Canvas onPointerMissed
 
 // --- Keyboard shortcuts ---
 function KeyboardHandler() {
@@ -887,7 +847,7 @@ export default function Viewport() {
   const {
     showGrid, showGizmos, showStats, mode,
     objects, rootIds, physicsGravity, physicsTimestep, showPhysicsDebug,
-    selectedIds,
+    selectedIds, selectObject,
     featureFlags: ff,
   } = useEngineStore();
 
@@ -960,12 +920,12 @@ export default function Viewport() {
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
         camera={{ position: [5, 5, 10], fov: 60, near: 0.1, far: 1000 }}
         style={{ background: '#0d0d14' }}
+        onPointerMissed={() => { if (mode === 'editor') selectObject(null); }}
         onCreated={({ gl }) => {
           import('./thumbnailCapture').then(m => m.registerViewportCanvas(gl.domElement));
         }}
       >
         <KeyboardHandler />
-        <BackgroundClickHandler />
         <SceneEnvironment />
 
         {/* Fog */}
