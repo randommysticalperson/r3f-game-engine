@@ -24,3 +24,10 @@
 - [x] Yield criterion selector (von Mises, Tresca, Mohr-Coulomb) with color-coded yield ratio bar
 - [x] Stress wave propagation animation in play mode (wave equation on tensor components)
 - [x] Multi-object stress coupling via Rapier collision traction vectors (t = sigma * n_hat)
+
+## Feature Flags System
+- [x] Define FEATURE_FLAGS map in engine store with all toggleable features and defaults
+- [x] Feature Flags panel UI: toggle list with name, description, keyboard shortcut badge
+- [x] Toolbar button (flag icon) to open/close Feature Flags panel
+- [x] Wire flags into engine: physics, cauchy stress, principal arrows, von Mises color, Mohr's circle HUD, stress wave, stress coupling, grid, stats overlay, shadows, gizmo helper
+- [x] Persist feature flags to localStorage so they survive page reload

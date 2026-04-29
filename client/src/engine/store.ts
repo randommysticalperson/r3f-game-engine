@@ -9,6 +9,12 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
+import {
+  type FeatureFlagKey,
+  buildDefaultFeatureFlags,
+  loadPersistedFeatureFlags,
+  persistFeatureFlags,
+} from './featureFlags';
 
 // --- Types ---
 export type Vec3 = [number, number, number];
@@ -131,6 +137,11 @@ export interface EngineStore {
   undo: () => void;
   redo: () => void;
   _pushHistory: () => void;
+  // Feature Flags
+  featureFlags: Record<FeatureFlagKey, boolean>;
+  toggleFeatureFlag: (key: FeatureFlagKey) => void;
+  setFeatureFlag: (key: FeatureFlagKey, value: boolean) => void;
+  resetFeatureFlags: () => void;
 }
 
 // --- Factory helpers ---
@@ -218,6 +229,23 @@ export const useEngineStore = create<EngineStore>()(
       _future: [],
       canUndo: false,
       canRedo: false,
+      featureFlags: loadPersistedFeatureFlags(),
+
+      toggleFeatureFlag: (key) => set(s => {
+        const updated = { ...s.featureFlags, [key]: !s.featureFlags[key] };
+        persistFeatureFlags(updated);
+        return { featureFlags: updated };
+      }),
+      setFeatureFlag: (key, value) => set(s => {
+        const updated = { ...s.featureFlags, [key]: value };
+        persistFeatureFlags(updated);
+        return { featureFlags: updated };
+      }),
+      resetFeatureFlags: () => set(() => {
+        const defaults = buildDefaultFeatureFlags();
+        persistFeatureFlags(defaults);
+        return { featureFlags: defaults };
+      }),
 
       _pushHistory: () => {
         const s = get();

@@ -3,7 +3,7 @@
  * Design: Obsidian Terminal - ember orange play mode, electric cyan selections
  * Scene persistence: tRPC + MySQL database via useScenePersistence hook
  */
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { getLoginUrl } from '@/const';
 import {
@@ -33,7 +33,9 @@ import {
   User,
   LogIn,
   LogOut,
+  Flag,
 } from 'lucide-react';
+import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { useEngineStore } from './store';
 import { exportSceneJSON, downloadJSON } from './sceneIO';
 import { useScenePersistence } from './useScenePersistence';
@@ -168,6 +170,20 @@ export default function Toolbar() {
 
   const [editingName, setEditingName] = useState(false);
   const [isPublicScene, setIsPublicScene] = useState(false);
+  const [showFlagsPanel, setShowFlagsPanel] = useState(false);
+
+  // Ctrl+Shift+F opens/closes the feature flags panel
+  const handleFlagsKey = useCallback((e: KeyboardEvent) => {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+      e.preventDefault();
+      setShowFlagsPanel(v => !v);
+    }
+  }, []);
+  useEffect(() => {
+    window.addEventListener('keydown', handleFlagsKey);
+    return () => window.removeEventListener('keydown', handleFlagsKey);
+  }, [handleFlagsKey]);
+
   // --- Database save ---
   const handleSaveToDb = async () => {
     const id = await saveToDb(isPublicScene);
@@ -201,6 +217,7 @@ export default function Toolbar() {
   };
 
   return (
+    <>
     <div
       className="flex items-center gap-1 px-3 shrink-0"
       style={{
@@ -378,6 +395,13 @@ export default function Toolbar() {
       <ToolbarBtn onClick={togglePhysicsDebug} active={showPhysicsDebug} title="Toggle Physics Debug (Collider Wireframes)">
         <Shield size={13} />
       </ToolbarBtn>
+      <ToolbarBtn
+        onClick={() => setShowFlagsPanel(v => !v)}
+        active={showFlagsPanel}
+        title="Feature Flags (Ctrl+Shift+F)"
+      >
+        <Flag size={13} />
+      </ToolbarBtn>
 
       {/* Spacer */}
       <div className="flex-1" />
@@ -459,5 +483,10 @@ export default function Toolbar() {
         </div>
       )}
     </div>
+    {/* Feature Flags Panel */}
+    {showFlagsPanel && (
+      <FeatureFlagsPanel onClose={() => setShowFlagsPanel(false)} />
+    )}
+    </>
   );
 }

@@ -43,7 +43,29 @@ import type {
   TransformComponent,
   CauchyStressComponent,
 } from './store';
-import { computeDeformation, computePrincipalStresses } from './cauchyStress';
+import { computeDeformation, computePrincipalStresses, computeYieldRatio } from './cauchyStress';
+
+/** Map a yield ratio [0..1+] to a heat-map color string (green → yellow → orange → red) */
+function computeStressColor(comp: CauchyStressComponent): string {
+  const tensor = { sxx: comp.sxx, syy: comp.syy, szz: comp.szz, txy: comp.txy, txz: comp.txz, tyz: comp.tyz };
+  const criterion = comp.yieldCriterion ?? 'vonMises';
+  const result = computeYieldRatio(tensor, comp.yieldStress, criterion);
+  const r = Math.min(result.ratio, 1.0);
+  // Interpolate: green(0) -> yellow(0.5) -> orange(0.75) -> red(1.0)
+  if (r < 0.5) {
+    const t = r / 0.5;
+    const R = Math.round(t * 255);
+    return `rgb(${R},255,0)`;
+  } else if (r < 0.75) {
+    const t = (r - 0.5) / 0.25;
+    const G = Math.round(255 - t * 128);
+    return `rgb(255,${G},0)`;
+  } else {
+    const t = (r - 0.75) / 0.25;
+    const G = Math.round(127 - t * 127);
+    return `rgb(255,${G},0)`;
+  }
+}
 import MohrCircleHUD from './MohrCircleHUD';
 
 // Shared flag: set true when a mesh is clicked, so background handler won't deselect
@@ -305,16 +327,21 @@ function SceneMaterial({
   isHovered,
   mesh,
   showWireframe,
+  forceWireframe = false,
+  stressColor,
 }: {
   isSelected: boolean;
   isHovered: boolean;
   mesh: any;
   showWireframe: boolean;
+  forceWireframe?: boolean;
+  stressColor?: string;
 }) {
+  const baseColor = stressColor ?? mesh.color;
   return (
     <meshStandardMaterial
-      color={isSelected ? '#00e5ff' : isHovered ? '#88ddff' : mesh.color}
-      wireframe={showWireframe || mesh.wireframe}
+      color={isSelected ? '#00e5ff' : isHovered ? '#88ddff' : baseColor}
+      wireframe={showWireframe || mesh.wireframe || forceWireframe}
       metalness={mesh.metalness ?? 0.2}
       roughness={mesh.roughness ?? 0.5}
       opacity={mesh.opacity ?? 1}
@@ -327,7 +354,7 @@ function SceneMaterial({
 
 // --- Physics-aware scene object (play mode) ---
 function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
-  const { selectedIds, hoveredId, selectObject, setHovered, showWireframe } = useEngineStore();
+  const { selectedIds, hoveredId, selectObject, setHovered, showWireframe, featureFlags: ff } = useEngineStore();
   const meshRef = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
   const transform = obj.components.transform as TransformComponent | undefined;
@@ -363,10 +390,9 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
       onPointerLeave={() => setHovered(null)}
     >
       <GeometryByType geometry={mesh.geometry} />
-      <SceneMaterial isSelected={isSelected} isHovered={isHovered} mesh={mesh} showWireframe={showWireframe} />
+       <SceneMaterial isSelected={isSelected} isHovered={isHovered} mesh={mesh} showWireframe={showWireframe} forceWireframe={ff.wireframeMode} stressColor={cauchyStress && ff.vonMisesColorMap ? computeStressColor(cauchyStress) : undefined} />
     </mesh>
   );
-
   if (rigidbody) {
     const bodyType = rigidbody.bodyType === 'dynamic' ? 'dynamic'
       : rigidbody.bodyType === 'fixed' ? 'fixed'
@@ -396,7 +422,7 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
       >
         <group scale={scl}>{meshEl}</group>
         {collider && <ColliderByShape collider={collider} scale={scl} />}
-        {cauchyStress?.enabled && (
+        {cauchyStress?.enabled && ff.stressWavePropagation && (
           <RigidBodyStressWave comp={cauchyStress} basePos={pos} objId={obj.id} />
         )}
       </RigidBody>
@@ -409,7 +435,7 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
       <group ref={groupRef} position={pos} rotation={rotRad} scale={scl}>
         {meshEl}
       </group>
-      {cauchyStress && (
+      {cauchyStress && ff.cauchyStressEnabled && (
         <CauchyStressDeformer
           groupRef={groupRef}
           comp={cauchyStress}
@@ -419,16 +445,15 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
           isPlaying={true}
         />
       )}
-      {cauchyStress?.showPrincipalArrows && (
+      {cauchyStress?.showPrincipalArrows && ff.principalStressArrows && (
         <PrincipalStressArrows comp={cauchyStress} position={pos} />
       )}
     </>
   );
 }
-
-// --- Editor-mode scene object (no physics) ---
+// --- Editor-mode scene object (no physics) ----
 function EditorSceneObject({ obj }: { obj: SceneObject }) {
-  const { selectedIds, hoveredId, selectObject, setHovered, showWireframe } = useEngineStore();
+  const { selectedIds, hoveredId, selectObject, setHovered, showWireframe, featureFlags: ff } = useEngineStore();
   const meshRef = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
   const transform = obj.components.transform as TransformComponent | undefined;
@@ -464,11 +489,11 @@ function EditorSceneObject({ obj }: { obj: SceneObject }) {
           onPointerLeave={() => setHovered(null)}
         >
           <GeometryByType geometry={mesh.geometry} />
-          <SceneMaterial isSelected={isSelected} isHovered={isHovered} mesh={mesh} showWireframe={showWireframe} />
+          <SceneMaterial isSelected={isSelected} isHovered={isHovered} mesh={mesh} showWireframe={showWireframe} forceWireframe={ff.wireframeMode} stressColor={cauchyStress && ff.vonMisesColorMap ? computeStressColor(cauchyStress) : undefined} />
         </mesh>
       </group>
       {/* Cauchy Stress deformer: editor mode shows static preview (isPlaying=false) */}
-      {cauchyStress && (
+      {cauchyStress && ff.cauchyStressEnabled && (
         <CauchyStressDeformer
           groupRef={groupRef}
           comp={cauchyStress}
@@ -479,7 +504,7 @@ function EditorSceneObject({ obj }: { obj: SceneObject }) {
         />
       )}
       {/* Principal stress arrows always visible when enabled */}
-      {cauchyStress?.showPrincipalArrows && (
+      {cauchyStress?.showPrincipalArrows && ff.principalStressArrows && (
         <PrincipalStressArrows comp={cauchyStress} position={pos} />
       )}
     </>
@@ -666,19 +691,24 @@ function StressCouplingSystem({ objects }: { objects: Record<string, any> }) {
 }
 
 function PhysicsScene({ objects, rootIds }: { objects: Record<string, SceneObject>; rootIds: string[] }) {
-  const { physicsGravity, physicsTimestep, showPhysicsDebug, log } = useEngineStore();
+  const { physicsGravity, physicsTimestep, showPhysicsDebug, featureFlags: ff, log } = useEngineStore();
   useEffect(() => {
     log(`Physics world active -- gravity: [${physicsGravity.join(', ')}]`, 'info', 'Physics');
   }, []);
   return (
-    <Physics gravity={physicsGravity} timeStep={physicsTimestep} debug={showPhysicsDebug}>
+    <Physics
+      gravity={physicsGravity}
+      timeStep={physicsTimestep}
+      debug={showPhysicsDebug && ff.physicsDebugColliders}
+      paused={!ff.physicsEnabled}
+    >
       <SceneLights objects={objects} />
       {rootIds.map(id => {
         const obj = objects[id];
         if (!obj) return null;
         return <PhysicsSceneObject key={id} obj={obj} />;
       })}
-      <StressCouplingSystem objects={objects} />
+      {ff.stressCoupling && <StressCouplingSystem objects={objects} />}
     </Physics>
   );
 }
@@ -858,7 +888,14 @@ export default function Viewport() {
     showGrid, showGizmos, showStats, mode,
     objects, rootIds, physicsGravity, physicsTimestep, showPhysicsDebug,
     selectedIds,
+    featureFlags: ff,
   } = useEngineStore();
+
+  // Merge toolbar toggles with feature flags
+  const gridVisible = showGrid && ff.gridEnabled;
+  const gizmosVisible = showGizmos && ff.gizmosEnabled;
+  const statsVisible = showStats && ff.statsOverlay;
+  const physicsDebugVisible = showPhysicsDebug && ff.physicsDebugColliders;
 
   // Cauchy Stress HUD: show when selected object has a cauchyStress component
   const selectedObj = selectedIds[0] ? objects[selectedIds[0]] : null;
@@ -904,12 +941,12 @@ export default function Viewport() {
       )}
 
       {/* Cauchy Stress HUD overlay */}
-      {selectedCauchy && selectedObj && (
+      {selectedCauchy && selectedObj && ff.mohrsCircleHUD && (
         <MohrCircleHUD comp={selectedCauchy} objectName={selectedObj.name} />
       )}
 
       {/* Physics debug badge */}
-      {showPhysicsDebug && (
+      {physicsDebugVisible && (
         <div
           className="absolute top-2 right-16 z-20 pointer-events-none flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono"
           style={{ background: 'rgba(255,165,0,0.15)', border: '1px solid rgba(255,165,0,0.4)', color: '#ffa500' }}
@@ -919,7 +956,7 @@ export default function Viewport() {
       )}
 
       <Canvas
-        shadows
+        shadows={ff.shadowsEnabled}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
         camera={{ position: [5, 5, 10], fov: 60, near: 0.1, far: 1000 }}
         style={{ background: '#0d0d14' }}
@@ -944,7 +981,7 @@ export default function Viewport() {
         </Suspense>
 
         {/* Grid */}
-        {showGrid && (
+        {gridVisible && (
           <Grid
             args={[20, 20]}
             cellSize={1}
@@ -961,7 +998,7 @@ export default function Viewport() {
         )}
 
         {/* Transform gizmo (editor only) */}
-        {showGizmos && <TransformGizmo />}
+        {gizmosVisible && ff.transformGizmo && <TransformGizmo />}
 
         {/* Orbit controls */}
         <OrbitControls
@@ -978,7 +1015,7 @@ export default function Viewport() {
         />
 
         {/* Corner orientation gizmo */}
-        {showGizmos && (
+        {gizmosVisible && (
           <GizmoHelper alignment="bottom-right" margin={[64, 64]}>
             <GizmoViewport
               axisColors={['#ff4444', '#44ff44', '#4488ff']}
@@ -989,7 +1026,7 @@ export default function Viewport() {
         )}
 
         {/* Performance stats */}
-        {showStats && <Stats />}
+        {statsVisible && <Stats />}
       </Canvas>
     </div>
   );
