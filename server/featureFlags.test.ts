@@ -56,8 +56,8 @@ describe('DEFAULT_FEATURE_FLAGS', () => {
     expect(DEFAULT_FEATURE_FLAGS.physicsEnabled).toBe(true);
   });
 
-  it('should include cauchyStressEnabled as true by default', () => {
-    expect(DEFAULT_FEATURE_FLAGS.cauchyStressEnabled).toBe(true);
+  it('should include cauchyStressEnabled as false by default (disabled until explicitly enabled)', () => {
+    expect(DEFAULT_FEATURE_FLAGS.cauchyStressEnabled).toBe(false);
   });
 
   it('should include shadowsEnabled as true by default', () => {
