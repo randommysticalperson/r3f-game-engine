@@ -9,9 +9,10 @@ import {
   ChevronDown, ChevronRight, Trash2, Plus, Move3D, Box, Sun, Camera, Code2, Zap, Shield, Eye, EyeOff, Lock, Unlock, Tag,
 } from 'lucide-react';
 import { useEngineStore } from './store';
-import type { TransformComponent, MeshComponent, LightComponent, CameraComponent, ScriptComponent, RigidbodyComponent, ColliderComponent, Component } from './store';
+import type { TransformComponent, MeshComponent, LightComponent, CameraComponent, ScriptComponent, RigidbodyComponent, ColliderComponent, CauchyStressComponent, Component } from './store';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { makeDefaultMesh, makeDefaultLight, makeDefaultRigidbody, makeDefaultCollider } from './store';
+import { makeDefaultMesh, makeDefaultLight, makeDefaultRigidbody, makeDefaultCollider, makeDefaultCauchyStress } from './store';
+import CauchyStressEditor from './CauchyStressEditor';
 
 function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -260,6 +261,7 @@ function AddComponentMenu({ id, existingTypes }: { id: string; existingTypes: st
     { type: 'script', label: 'Script', icon: <Code2 size={11} />, make: () => ({ type: 'script' as const, code: '// onUpdate(delta) {\n//   this.rotation.y += delta;\n// }', enabled: true }) },
     { type: 'rigidbody', label: 'Rigidbody', icon: <Zap size={11} />, make: () => makeDefaultRigidbody() },
     { type: 'collider', label: 'Collider', icon: <Shield size={11} />, make: () => makeDefaultCollider() },
+    { type: 'cauchyStress', label: 'Cauchy Stress Tensor', icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', color: '#ff6b35' }}>sigma</span>, make: () => makeDefaultCauchyStress() },
   ].filter(c => !existingTypes.includes(c.type));
   if (available.length === 0) return null;
   return (
@@ -304,6 +306,7 @@ export default function InspectorPanel() {
   const script = obj.components.script as ScriptComponent | undefined;
   const rigidbody = obj.components.rigidbody as RigidbodyComponent | undefined;
   const collider = obj.components.collider as ColliderComponent | undefined;
+  const cauchyStress = obj.components.cauchyStress as CauchyStressComponent | undefined;
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: '#0e0e16' }}>
@@ -334,6 +337,11 @@ export default function InspectorPanel() {
         {script && <ScriptEditor id={obj.id} comp={script} />}
         {rigidbody && <RigidbodyEditor id={obj.id} comp={rigidbody} />}
         {collider && <ColliderEditor id={obj.id} comp={collider} />}
+        {cauchyStress && (
+          <ComponentSection title="Cauchy Stress Tensor" icon={<span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic' }}>sigma</span>} onRemove={() => useEngineStore.getState().removeComponent(obj.id, 'cauchyStress')} accentColor="#ff6b35">
+            <CauchyStressEditor objectId={obj.id} comp={cauchyStress} />
+          </ComponentSection>
+        )}
         <AddComponentMenu id={obj.id} existingTypes={existingTypes} />
         <div className="h-4" />
       </div>

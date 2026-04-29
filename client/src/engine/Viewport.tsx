@@ -38,10 +38,110 @@ import type {
   RigidbodyComponent,
   ColliderComponent,
   TransformComponent,
+  CauchyStressComponent,
 } from './store';
+import { computeDeformation, computePrincipalStresses } from './cauchyStress';
+import MohrCircleHUD from './MohrCircleHUD';
 
 // Shared flag: set true when a mesh is clicked, so background handler won't deselect
 const meshHitThisFrame = { current: false };
+
+// -----------------------------------------------------------------------
+// CauchyStressDeformer: applies tensor-driven deformation each frame
+// Drives position offset, rotation, and scale from principal strains
+// -----------------------------------------------------------------------
+function CauchyStressDeformer({
+  groupRef,
+  comp,
+  basePos,
+  baseRot,
+  baseScale,
+  isPlaying,
+}: {
+  groupRef: React.RefObject<THREE.Group | null>;
+  comp: CauchyStressComponent;
+  basePos: [number, number, number];
+  baseRot: [number, number, number];
+  baseScale: [number, number, number];
+  isPlaying: boolean;
+}) {
+  const timeRef = useRef(0);
+  useFrame((_, delta) => {
+    const g = groupRef.current;
+    if (!g || !comp.enabled) return;
+    if (!isPlaying) {
+      g.position.set(...basePos);
+      g.rotation.set(
+        (baseRot[0] * Math.PI) / 180,
+        (baseRot[1] * Math.PI) / 180,
+        (baseRot[2] * Math.PI) / 180
+      );
+      g.scale.set(...baseScale);
+      return;
+    }
+    timeRef.current += delta;
+    const t = timeRef.current;
+    const tensor = { sxx: comp.sxx, syy: comp.syy, szz: comp.szz, txy: comp.txy, txz: comp.txz, tyz: comp.tyz };
+    const mat = { youngsModulus: comp.youngsModulus, poissonsRatio: comp.poissonsRatio, density: comp.density };
+    const def = computeDeformation(tensor, mat, comp.strainAmplitude, delta);
+    const wave = Math.sin(t * 1.5) * 0.5 + 0.5;
+    if (comp.applyToPosition) {
+      g.position.set(
+        basePos[0] + def.dispX * wave,
+        basePos[1] + def.dispY * wave,
+        basePos[2] + def.dispZ * wave
+      );
+    }
+    if (comp.applyToRotation) {
+      g.rotation.set(
+        (baseRot[0] * Math.PI) / 180 + def.rotX * wave,
+        (baseRot[1] * Math.PI) / 180 + def.rotY * wave,
+        (baseRot[2] * Math.PI) / 180 + def.rotZ * wave
+      );
+    }
+    if (comp.applyToScale) {
+      g.scale.set(
+        baseScale[0] * (1 + (def.scaleX - 1) * wave),
+        baseScale[1] * (1 + (def.scaleY - 1) * wave),
+        baseScale[2] * (1 + (def.scaleZ - 1) * wave)
+      );
+    }
+  });
+  return null;
+}
+
+// -----------------------------------------------------------------------
+// PrincipalStressArrows: 3 colored lines along principal stress directions
+// -----------------------------------------------------------------------
+function PrincipalStressArrows({ comp, position }: { comp: CauchyStressComponent; position: [number, number, number] }) {
+  const tensor = { sxx: comp.sxx, syy: comp.syy, szz: comp.szz, txy: comp.txy, txz: comp.txz, tyz: comp.tyz };
+  const ps = computePrincipalStresses(tensor);
+  const maxStress = Math.max(Math.abs(ps.s1), Math.abs(ps.s3), 1e-6);
+  const arrowScale = 1.5 / maxStress;
+  const arrows = [
+    { dir: ps.v1, stress: ps.s1, color: ps.s1 > 0 ? '#ff6b35' : '#7bc67e' },
+    { dir: ps.v2, stress: ps.s2, color: '#00e5ff' },
+    { dir: ps.v3, stress: ps.s3, color: ps.s3 < 0 ? '#7bc67e' : '#ff6b35' },
+  ];
+  return (
+    <group position={position}>
+      {arrows.map(({ dir, stress, color }, i) => {
+        const len = Math.abs(stress) * arrowScale;
+        if (len < 0.01) return null;
+        const d = new THREE.Vector3(dir[0], dir[1], dir[2]).normalize();
+        const pts = new Float32Array([
+          -d.x * len, -d.y * len, -d.z * len,
+           d.x * len,  d.y * len,  d.z * len,
+        ]);
+        const lineGeo = new THREE.BufferGeometry();
+        lineGeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+        return (
+          <primitive key={i} object={new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color }))} />
+        );
+      })}
+    </group>
+  );
+}
 
 // --- Geometry map ---
 function GeometryByType({ geometry }: { geometry: MeshGeometry }) {
@@ -117,10 +217,12 @@ function SceneMaterial({
 function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
   const { selectedIds, hoveredId, selectObject, setHovered, showWireframe } = useEngineStore();
   const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
   const transform = obj.components.transform as TransformComponent | undefined;
   const mesh = obj.components.mesh as any;
   const rigidbody = obj.components.rigidbody as RigidbodyComponent | undefined;
   const collider = obj.components.collider as ColliderComponent | undefined;
+  const cauchyStress = obj.components.cauchyStress as CauchyStressComponent | undefined;
   const isSelected = selectedIds.includes(obj.id);
   const isHovered = hoveredId === obj.id && !isSelected;
 
@@ -181,10 +283,26 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
     );
   }
 
+  // No rigidbody -- use group ref for Cauchy deformation
   return (
-    <group position={pos} rotation={rotRad} scale={scl}>
-      {meshEl}
-    </group>
+    <>
+      <group ref={groupRef} position={pos} rotation={rotRad} scale={scl}>
+        {meshEl}
+      </group>
+      {cauchyStress && (
+        <CauchyStressDeformer
+          groupRef={groupRef}
+          comp={cauchyStress}
+          basePos={pos}
+          baseRot={rot}
+          baseScale={scl}
+          isPlaying={true}
+        />
+      )}
+      {cauchyStress?.showPrincipalArrows && (
+        <PrincipalStressArrows comp={cauchyStress} position={pos} />
+      )}
+    </>
   );
 }
 
@@ -192,8 +310,10 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
 function EditorSceneObject({ obj }: { obj: SceneObject }) {
   const { selectedIds, hoveredId, selectObject, setHovered, showWireframe } = useEngineStore();
   const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
   const transform = obj.components.transform as TransformComponent | undefined;
   const mesh = obj.components.mesh as any;
+  const cauchyStress = obj.components.cauchyStress as CauchyStressComponent | undefined;
   const isSelected = selectedIds.includes(obj.id);
   const isHovered = hoveredId === obj.id && !isSelected;
 
@@ -209,23 +329,40 @@ function EditorSceneObject({ obj }: { obj: SceneObject }) {
   ];
 
   return (
-    <group position={pos} rotation={rotRad} scale={scl}>
-      <mesh
-        ref={meshRef}
-        castShadow={mesh.castShadow}
-        receiveShadow={mesh.receiveShadow}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          meshHitThisFrame.current = true;
-          selectObject(obj.id);
-        }}
-        onPointerEnter={() => setHovered(obj.id)}
-        onPointerLeave={() => setHovered(null)}
-      >
-        <GeometryByType geometry={mesh.geometry} />
-        <SceneMaterial isSelected={isSelected} isHovered={isHovered} mesh={mesh} showWireframe={showWireframe} />
-      </mesh>
-    </group>
+    <>
+      <group ref={groupRef} position={pos} rotation={rotRad} scale={scl}>
+        <mesh
+          ref={meshRef}
+          castShadow={mesh.castShadow}
+          receiveShadow={mesh.receiveShadow}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            meshHitThisFrame.current = true;
+            selectObject(obj.id);
+          }}
+          onPointerEnter={() => setHovered(obj.id)}
+          onPointerLeave={() => setHovered(null)}
+        >
+          <GeometryByType geometry={mesh.geometry} />
+          <SceneMaterial isSelected={isSelected} isHovered={isHovered} mesh={mesh} showWireframe={showWireframe} />
+        </mesh>
+      </group>
+      {/* Cauchy Stress deformer: editor mode shows static preview (isPlaying=false) */}
+      {cauchyStress && (
+        <CauchyStressDeformer
+          groupRef={groupRef}
+          comp={cauchyStress}
+          basePos={pos}
+          baseRot={rot}
+          baseScale={scl}
+          isPlaying={false}
+        />
+      )}
+      {/* Principal stress arrows always visible when enabled */}
+      {cauchyStress?.showPrincipalArrows && (
+        <PrincipalStressArrows comp={cauchyStress} position={pos} />
+      )}
+    </>
   );
 }
 
@@ -481,7 +618,12 @@ export default function Viewport() {
   const {
     showGrid, showGizmos, showStats, mode,
     objects, rootIds, physicsGravity, physicsTimestep, showPhysicsDebug,
+    selectedIds,
   } = useEngineStore();
+
+  // Cauchy Stress HUD: show when selected object has a cauchyStress component
+  const selectedObj = selectedIds[0] ? objects[selectedIds[0]] : null;
+  const selectedCauchy = selectedObj?.components.cauchyStress as import('./store').CauchyStressComponent | undefined;
 
   const isPlayMode = mode !== 'editor';
   const [physicsKey, setPhysicsKey] = useState(0);
@@ -520,6 +662,11 @@ export default function Viewport() {
           <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'currentColor' }} />
           {mode === 'pause' ? 'PAUSED -- Click Stop to return to editor' : 'PLAYING -- Rapier Physics Active -- F5 or Stop to exit'}
         </div>
+      )}
+
+      {/* Cauchy Stress HUD overlay */}
+      {selectedCauchy && selectedObj && (
+        <MohrCircleHUD comp={selectedCauchy} objectName={selectedObj.name} />
       )}
 
       {/* Physics debug badge */}

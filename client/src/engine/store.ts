@@ -12,7 +12,7 @@ import { nanoid } from 'nanoid';
 
 // --- Types ---
 export type Vec3 = [number, number, number];
-export type ComponentType = 'transform' | 'mesh' | 'light' | 'camera' | 'script' | 'rigidbody' | 'collider';
+export type ComponentType = 'transform' | 'mesh' | 'light' | 'camera' | 'script' | 'rigidbody' | 'collider' | 'cauchyStress';
 
 export interface TransformComponent { type: 'transform'; position: Vec3; rotation: Vec3; scale: Vec3; }
 export type MeshGeometry = 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'capsule' | 'icosahedron';
@@ -25,7 +25,30 @@ export type RigidBodyType = 'dynamic' | 'fixed' | 'kinematicPosition' | 'kinemat
 export type ColliderShape = 'cuboid' | 'ball' | 'capsule' | 'cylinder' | 'cone';
 export interface RigidbodyComponent { type: 'rigidbody'; bodyType: RigidBodyType; gravityScale: number; linearDamping: number; angularDamping: number; initialLinearVelocity: Vec3; initialAngularVelocity: Vec3; lockTranslations: boolean; lockRotations: boolean; ccd: boolean; canSleep: boolean; isKinematic: boolean; }
 export interface ColliderComponent { type: 'collider'; shape: ColliderShape; halfExtents: Vec3; radius: number; halfHeight: number; restitution: number; friction: number; density: number; isSensor: boolean; offset: Vec3; }
-export type Component = TransformComponent | MeshComponent | LightComponent | CameraComponent | ScriptComponent | RigidbodyComponent | ColliderComponent;
+export interface CauchyStressComponent {
+  type: 'cauchyStress';
+  enabled: boolean;
+  // 3x3 symmetric Cauchy stress tensor (Pa)
+  sxx: number; syy: number; szz: number;
+  txy: number; txz: number; tyz: number;
+  // Material (Hooke's law)
+  youngsModulus: number;
+  poissonsRatio: number;
+  density: number;
+  // Visual amplification of strain
+  strainAmplitude: number;
+  // Yield stress for von Mises color map (Pa)
+  yieldStress: number;
+  // Visualisation flags
+  showPrincipalArrows: boolean;
+  showVonMisesColor: boolean;
+  showMohrsCircle: boolean;
+  // Which transforms to drive
+  applyToPosition: boolean;
+  applyToRotation: boolean;
+  applyToScale: boolean;
+}
+export type Component = TransformComponent | MeshComponent | LightComponent | CameraComponent | ScriptComponent | RigidbodyComponent | ColliderComponent | CauchyStressComponent;
 
 export interface SceneObject { id: string; name: string; parentId: string | null; childIds: string[]; active: boolean; locked: boolean; components: Record<string, Component>; tags: string[]; }
 export type EditorMode = 'editor' | 'play' | 'pause';
@@ -120,6 +143,25 @@ export function makeDefaultLight(lightType: LightType = 'point'): LightComponent
 }
 export function makeDefaultRigidbody(): RigidbodyComponent {
   return { type: 'rigidbody', bodyType: 'dynamic', gravityScale: 1, linearDamping: 0.05, angularDamping: 0.05, initialLinearVelocity: [0,0,0], initialAngularVelocity: [0,0,0], lockTranslations: false, lockRotations: false, ccd: false, canSleep: true, isKinematic: false };
+}
+export function makeDefaultCauchyStress(): CauchyStressComponent {
+  return {
+    type: 'cauchyStress',
+    enabled: true,
+    sxx: 50e6, syy: 20e6, szz: 10e6,
+    txy: 15e6, txz: 5e6,  tyz: 8e6,
+    youngsModulus: 200e9,
+    poissonsRatio: 0.3,
+    density: 7850,
+    strainAmplitude: 500,
+    yieldStress: 250e6,
+    showPrincipalArrows: true,
+    showVonMisesColor: true,
+    showMohrsCircle: true,
+    applyToPosition: true,
+    applyToRotation: true,
+    applyToScale: true,
+  };
 }
 export function makeDefaultCollider(): ColliderComponent {
   return { type: 'collider', shape: 'cuboid', halfExtents: [0.5,0.5,0.5], radius: 0.5, halfHeight: 0.5, restitution: 0.4, friction: 0.6, density: 1, isSensor: false, offset: [0,0,0] };
