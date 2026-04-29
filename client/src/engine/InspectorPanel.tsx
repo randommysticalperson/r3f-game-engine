@@ -1,3 +1,4 @@
+import React from 'react';
 /**
  * R3F Game Engine -- Inspector Panel
  * Design: Obsidian Terminal -- component-based property editor
@@ -106,14 +107,149 @@ function ComponentSection({ title, icon, children, onRemove, removable = true, a
   );
 }
 
-function TransformEditor({ id, comp }: { id: string; comp: TransformComponent }) {
+function TransformEditor({ id, comp, cauchyStress }: { id: string; comp: TransformComponent; cauchyStress?: CauchyStressComponent }) {
   const { updateComponent } = useEngineStore();
   const upd = (patch: Partial<TransformComponent>) => updateComponent<TransformComponent>(id, 'transform', patch);
+  const updStress = (patch: Partial<CauchyStressComponent>) => updateComponent<CauchyStressComponent>(id, 'cauchyStress', patch);
+
+  // Compute live stress readout when cauchyStress is present
+  const stressReadout = React.useMemo(() => {
+    if (!cauchyStress) return null;
+    try {
+      const { computePrincipalStresses, computeInvariants, computeYieldRatio } = require('./cauchyStress') as typeof import('./cauchyStress');
+      const tensor = { sxx: cauchyStress.sxx, syy: cauchyStress.syy, szz: cauchyStress.szz, txy: cauchyStress.txy, txz: cauchyStress.txz, tyz: cauchyStress.tyz };
+      const ps = computePrincipalStresses(tensor);
+      const inv = computeInvariants(tensor);
+      const criterion = cauchyStress.yieldCriterion ?? 'vonMises';
+      const yieldResult = computeYieldRatio(tensor, cauchyStress.yieldStress, criterion);
+      const yieldRatio = yieldResult.ratio;
+      return { ps, inv, yieldRatio, yieldResult };
+    } catch { return null; }
+  }, [cauchyStress]);
+
+  const fmt = (v: number) => {
+    const abs = Math.abs(v);
+    if (abs >= 1e6) return (v/1e6).toFixed(2) + 'M';
+    if (abs >= 1e3) return (v/1e3).toFixed(2) + 'k';
+    return v.toFixed(2);
+  };
+
+  const yieldColor = !stressReadout ? '#4488ff' :
+    stressReadout.yieldRatio > 0.9 ? '#ff3333' :
+    stressReadout.yieldRatio > 0.7 ? '#ff8800' :
+    stressReadout.yieldRatio > 0.5 ? '#ffcc00' : '#44cc88';
+
   return (
     <ComponentSection title="Transform" icon={<Move3D size={11} />} removable={false} accentColor="#4488ff">
       <Vec3Field label="Position" value={comp.position} onChange={v => upd({ position: v })} step={0.1} />
       <Vec3Field label="Rotation" value={comp.rotation} onChange={v => upd({ rotation: v })} step={1} />
       <Vec3Field label="Scale" value={comp.scale} onChange={v => upd({ scale: v })} step={0.05} />
+      {cauchyStress && (
+        <div style={{ marginTop: 8, borderTop: '1px solid #ff6b3530', paddingTop: 6 }}>
+          {/* Header */}
+          <div className="flex items-center gap-1.5 mb-2">
+            <span style={{ fontSize: 13, fontFamily: 'serif', fontStyle: 'italic', color: '#ff6b35', lineHeight: 1 }}>&#963;</span>
+            <span style={{ fontSize: 9, color: '#ff6b35', fontFamily: 'monospace', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Cauchy Stress</span>
+            {stressReadout && stressReadout.yieldResult && (
+              <span style={{ marginLeft: 'auto', fontSize: 9, color: yieldColor, fontFamily: 'monospace' }} title={stressReadout.yieldResult.formula}>
+                {stressReadout.yieldResult.label}: {fmt(stressReadout.yieldResult.effectiveStress)} Pa
+              </span>
+            )}
+          </div>
+          {/* 3x3 Tensor Matrix */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, marginBottom: 6 }}>
+            {/* Row 1: sxx, sxy, sxz */}
+            {[
+              { key: 'sxx', label: '&#963;xx', val: cauchyStress.sxx },
+              { key: 'txy', label: '&#964;xy', val: cauchyStress.txy },
+              { key: 'txz', label: '&#964;xz', val: cauchyStress.txz },
+              { key: 'txy', label: '&#964;xy', val: cauchyStress.txy, readOnly: true },
+              { key: 'syy', label: '&#963;yy', val: cauchyStress.syy },
+              { key: 'tyz', label: '&#964;yz', val: cauchyStress.tyz },
+              { key: 'txz', label: '&#964;xz', val: cauchyStress.txz, readOnly: true },
+              { key: 'tyz', label: '&#964;yz', val: cauchyStress.tyz, readOnly: true },
+              { key: 'szz', label: '&#963;zz', val: cauchyStress.szz },
+            ].map((cell, i) => (
+              <div key={i} style={{ position: 'relative' }}>
+                <div style={{
+                  fontSize: 7, color: '#ff6b3580', fontFamily: 'monospace',
+                  position: 'absolute', top: 1, left: 3, pointerEvents: 'none', zIndex: 1,
+                  lineHeight: 1,
+                }} dangerouslySetInnerHTML={{ __html: cell.label }} />
+                <input
+                  type="number"
+                  readOnly={cell.readOnly}
+                  value={cell.val}
+                  onChange={e => !cell.readOnly && updStress({ [cell.key]: parseFloat(e.target.value) || 0 })}
+                  style={{
+                    width: '100%', fontSize: 9, fontFamily: 'monospace',
+                    background: cell.readOnly ? '#0a0a1280' : '#0e0e1e',
+                    border: `1px solid ${cell.readOnly ? '#1a1a2a' : '#ff6b3540'}`,
+                    color: cell.readOnly ? '#666' : '#ffaa77',
+                    borderRadius: 2, padding: '10px 3px 2px 3px',
+                    outline: 'none', textAlign: 'right',
+                    opacity: cell.readOnly ? 0.6 : 1,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+          {/* Live Principal Stresses */}
+          {stressReadout && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 3, marginBottom: 5 }}>
+              {[
+                { label: '&#963;1', val: stressReadout.ps.s1, color: '#ff6b35' },
+                { label: '&#963;2', val: stressReadout.ps.s2, color: '#ffaa55' },
+                { label: '&#963;3', val: stressReadout.ps.s3, color: '#ffdd88' },
+              ].map((p, i) => (
+                <div key={i} style={{
+                  background: '#0a0a12', border: '1px solid #1e1e2e', borderRadius: 2,
+                  padding: '3px 4px', textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: 7, color: p.color, fontFamily: 'monospace', marginBottom: 1 }}
+                    dangerouslySetInnerHTML={{ __html: p.label }} />
+                  <div style={{ fontSize: 8, color: '#ccc', fontFamily: 'monospace' }}>{fmt(p.val)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Yield bar */}
+          {stressReadout && cauchyStress.yieldStress > 0 && (
+            <div style={{ marginBottom: 4 }}>
+              <div className="flex justify-between" style={{ marginBottom: 2 }}>
+                <span style={{ fontSize: 8, color: '#888', fontFamily: 'monospace' }}>Yield ratio</span>
+                <span style={{ fontSize: 8, color: yieldColor, fontFamily: 'monospace' }}>
+                  {(stressReadout.yieldRatio * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div style={{ height: 4, background: '#1a1a2a', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', width: `${Math.min(stressReadout.yieldRatio * 100, 100)}%`,
+                  background: yieldColor, borderRadius: 2,
+                  transition: 'width 0.15s ease, background 0.15s ease',
+                }} />
+              </div>
+            </div>
+          )}
+          {/* Yield criterion selector */}
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 8, color: '#888', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>Yield criterion</span>
+            <select
+              value={cauchyStress.yieldCriterion ?? 'vonMises'}
+              onChange={e => updStress({ yieldCriterion: e.target.value as any })}
+              style={{
+                flex: 1, fontSize: 8, fontFamily: 'monospace',
+                background: '#0e0e1e', border: '1px solid #2a2a3a',
+                color: '#ccc', borderRadius: 2, padding: '1px 3px', outline: 'none',
+              }}
+            >
+              <option value="vonMises">von Mises</option>
+              <option value="tresca">Tresca</option>
+              <option value="mohrCoulomb">Mohr-Coulomb</option>
+            </select>
+          </div>
+        </div>
+      )}
     </ComponentSection>
   );
 }
@@ -329,8 +465,8 @@ export default function InspectorPanel() {
           <span className="text-xs font-mono text-gray-600">ID: {obj.id}</span>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {transform && <TransformEditor id={obj.id} comp={transform} />}
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+        {transform && <TransformEditor id={obj.id} comp={transform} cauchyStress={cauchyStress} />}
         {mesh && <MeshEditor id={obj.id} comp={mesh} />}
         {light && <LightEditor id={obj.id} comp={light} />}
         {camera && <CameraEditor id={obj.id} comp={camera} />}

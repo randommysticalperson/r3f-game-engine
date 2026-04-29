@@ -15,6 +15,7 @@ import {
   computePrincipalStresses,
   computeInvariants,
   computeMohrsCircle,
+  computeYieldRatio,
   vonMisesColor,
 } from './cauchyStress';
 
@@ -118,10 +119,12 @@ export default function CauchyStressEditor({ objectId, comp }: Props) {
   const inv = useMemo(() => computeInvariants(tensor), [comp.sxx, comp.syy, comp.szz, comp.txy, comp.txz, comp.tyz]);
   const mohr = useMemo(() => computeMohrsCircle(tensor), [comp.sxx, comp.syy, comp.txy]);
 
-  // Von Mises color for the badge
-  const [vmR, vmG, vmB] = vonMisesColor(inv.vonMises, comp.yieldStress);
+  // Yield criterion-specific ratio
+  const criterion = comp.yieldCriterion ?? 'vonMises';
+  const yieldResult = useMemo(() => computeYieldRatio(tensor, comp.yieldStress, criterion), [comp.sxx, comp.syy, comp.szz, comp.txy, comp.txz, comp.tyz, comp.yieldStress, criterion]);
+  const [vmR, vmG, vmB] = vonMisesColor(yieldResult.effectiveStress, comp.yieldStress);
   const vmColor = `rgb(${Math.round(vmR * 255)},${Math.round(vmG * 255)},${Math.round(vmB * 255)})`;
-  const vmRatio = Math.min(inv.vonMises / Math.max(comp.yieldStress, 1e-6), 1.0);
+  const vmRatio = Math.min(yieldResult.ratio, 1.0);
 
   const sectionStyle: React.CSSProperties = {
     background: '#0a0a12',
@@ -238,17 +241,44 @@ export default function CauchyStressEditor({ objectId, comp }: Props) {
           </div>
         </div>
 
-        {/* Von Mises yield bar */}
+        {/* Yield criterion selector */}
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 9, color: '#888', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 1 }}>Yield Criterion</div>
+          <select
+            value={criterion}
+            onChange={e => upd({ yieldCriterion: e.target.value as any })}
+            style={{
+              width: '100%', fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
+              background: '#0d0d14', border: '1px solid #2a2a3a',
+              color: '#ccc', borderRadius: 2, padding: '3px 6px', outline: 'none', cursor: 'pointer',
+            }}
+          >
+            <option value="vonMises">von Mises -- ductile metals (sqrt(3*J2))</option>
+            <option value="tresca">Tresca -- pressure vessels ((s1-s3)/2)</option>
+            <option value="mohrCoulomb">Mohr-Coulomb -- soils/concrete (c + sigma*tan(phi))</option>
+          </select>
+          <div style={{ fontSize: 8, color: '#444', marginTop: 2, fontStyle: 'italic' }}>{yieldResult.formula}</div>
+        </div>
+
+        {/* Effective stress for chosen criterion */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontSize: 9, color: '#888' }}>{yieldResult.label} stress</div>
+          <div style={{ fontSize: 11, color: vmColor, fontFamily: 'JetBrains Mono, monospace' }}>
+            {fmtMPa(yieldResult.effectiveStress)} MPa
+          </div>
+        </div>
+
+        {/* Yield bar */}
         <div style={{ fontSize: 9, color: '#888', marginBottom: 3 }}>
-          Yield ratio: {(vmRatio * 100).toFixed(1)}%
-          <span style={{ marginLeft: 6, color: vmRatio > 0.9 ? '#ff4444' : vmRatio > 0.7 ? '#ff6b35' : '#7bc67e' }}>
-            {vmRatio > 1 ? 'YIELDED' : vmRatio > 0.9 ? 'NEAR YIELD' : vmRatio > 0.7 ? 'WARNING' : 'SAFE'}
+          Yield ratio: {(yieldResult.ratio * 100).toFixed(1)}%
+          <span style={{ marginLeft: 6, color: yieldResult.ratio > 0.9 ? '#ff4444' : yieldResult.ratio > 0.7 ? '#ff6b35' : '#7bc67e' }}>
+            {yieldResult.ratio > 1 ? 'YIELDED' : yieldResult.ratio > 0.9 ? 'NEAR YIELD' : yieldResult.ratio > 0.7 ? 'WARNING' : 'SAFE'}
           </span>
         </div>
         <div style={{ height: 6, background: '#111', borderRadius: 3, overflow: 'hidden' }}>
           <div style={{
             height: '100%',
-            width: `${Math.min(vmRatio * 100, 100)}%`,
+            width: `${Math.min(yieldResult.ratio * 100, 100)}%`,
             background: vmColor,
             transition: 'width 0.2s, background 0.2s',
             borderRadius: 3,

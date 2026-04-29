@@ -29,6 +29,9 @@ import {
   CapsuleCollider,
   CylinderCollider,
   ConeCollider,
+  useRapier,
+  useAfterPhysicsStep,
+  type RapierRigidBody,
 } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useEngineStore } from './store';
@@ -45,10 +48,86 @@ import MohrCircleHUD from './MohrCircleHUD';
 
 // Shared flag: set true when a mesh is clicked, so background handler won't deselect
 const meshHitThisFrame = { current: false };
+// Registry: maps object id -> RapierRigidBody ref for stress coupling
+const rigidBodyRegistry = new Map<string, RapierRigidBody>();
 
 // -----------------------------------------------------------------------
+
+// -----------------------------------------------------------------------
+// RigidBodyStressWave: applies stress wave as addForce to a Rapier RigidBody
+// Placed as a child of <RigidBody> so it can access the registry.
+// Uses the same P-wave modulation as CauchyStressDeformer.
+// -----------------------------------------------------------------------
+function RigidBodyStressWave({
+  comp,
+  basePos,
+  objId,
+}: {
+  comp: CauchyStressComponent;
+  basePos: [number, number, number];
+  objId: string;
+}) {
+  const timeRef = useRef(0);
+  useFrame((_, delta) => {
+    const body = rigidBodyRegistry.get(objId);
+    if (!body || !comp.enabled) return;
+    if (!body.isDynamic()) return;
+
+    timeRef.current += delta;
+    const t = timeRef.current;
+
+    const E = Math.max(comp.youngsModulus, 1e6);
+    const rho = Math.max(comp.density, 1.0);
+    const cWave = Math.sqrt(E / rho);
+    const lambda = 2.0;
+    const k = (2 * Math.PI) / lambda;
+    const omega = cWave * k;
+
+    const xPhase = k * basePos[0] - omega * t;
+    const yPhase = k * basePos[1] - omega * t * 0.8;
+    const zPhase = k * basePos[2] - omega * t * 1.2;
+
+    const waveAmp = 0.20;
+    const waveX = Math.sin(xPhase) * waveAmp;
+    const waveY = Math.sin(yPhase) * waveAmp;
+    const waveZ = Math.sin(zPhase) * waveAmp;
+
+    const animTensor = {
+      sxx: comp.sxx * (1 + waveX),
+      syy: comp.syy * (1 + waveY),
+      szz: comp.szz * (1 + waveZ),
+      txy: comp.txy * (1 + (waveX + waveY) * 0.5),
+      txz: comp.txz * (1 + (waveX + waveZ) * 0.5),
+      tyz: comp.tyz * (1 + (waveY + waveZ) * 0.5),
+    };
+
+    // Body force from stress divergence: F = div(sigma) * V
+    // Approximate as hydrostatic pressure gradient driving force
+    // F_i = (sigma_ii) * scale  (diagonal terms = normal stresses)
+    const forceScale = 1e-6; // scale Pa -> N (assuming ~1 m3 volume)
+    body.addForce(
+      {
+        x: animTensor.sxx * forceScale,
+        y: animTensor.syy * forceScale,
+        z: animTensor.szz * forceScale,
+      },
+      true
+    );
+  });
+  return null;
+}
+
 // CauchyStressDeformer: applies tensor-driven deformation each frame
-// Drives position offset, rotation, and scale from principal strains
+// Drives position offset, rotation, and scale from principal strains.
+//
+// Stress Wave Propagation (play mode):
+//   The wave equation d2u/dt2 = c2 * nabla2(u) governs elastic wave propagation.
+//   Wave speed: c = sqrt(E / rho)  (longitudinal P-wave speed)
+//   We simulate this by modulating each tensor component with a travelling wave:
+//     sigma_ij(t) = sigma_ij_0 * (1 + A * sin(k*x - omega*t))
+//   where omega = c * k (dispersion relation), k = 2*pi / lambda.
+//   The position of the object acts as the spatial coordinate x.
+//   This produces a physically-motivated oscillation that propagates in space.
 // -----------------------------------------------------------------------
 function CauchyStressDeformer({
   groupRef,
@@ -81,29 +160,62 @@ function CauchyStressDeformer({
     }
     timeRef.current += delta;
     const t = timeRef.current;
-    const tensor = { sxx: comp.sxx, syy: comp.syy, szz: comp.szz, txy: comp.txy, txz: comp.txz, tyz: comp.tyz };
-    const mat = { youngsModulus: comp.youngsModulus, poissonsRatio: comp.poissonsRatio, density: comp.density };
-    const def = computeDeformation(tensor, mat, comp.strainAmplitude, delta);
-    const wave = Math.sin(t * 1.5) * 0.5 + 0.5;
+
+    // --- Stress Wave Propagation ---
+    // P-wave speed: c = sqrt(E / rho)  (longitudinal elastic wave)
+    const E = Math.max(comp.youngsModulus, 1e6);
+    const rho = Math.max(comp.density, 1.0);
+    const cWave = Math.sqrt(E / rho); // m/s (steel ~5000 m/s)
+
+    // Wavenumber k = 2*pi / lambda, lambda = 1 unit in scene space
+    const lambda = 2.0; // wavelength in scene units
+    const k = (2 * Math.PI) / lambda;
+    const omega = cWave * k; // angular frequency (rad/s)
+
+    // Spatial phase: use object's base position as the wave coordinate
+    // x-component drives longitudinal wave, y/z drive transverse waves
+    const xPhase = k * basePos[0] - omega * t;
+    const yPhase = k * basePos[1] - omega * t * 0.8; // slightly different freq
+    const zPhase = k * basePos[2] - omega * t * 1.2;
+
+    // Wave amplitude: 20% modulation of tensor components
+    const waveAmp = 0.20;
+    const waveX = Math.sin(xPhase) * waveAmp;
+    const waveY = Math.sin(yPhase) * waveAmp;
+    const waveZ = Math.sin(zPhase) * waveAmp;
+
+    // Modulate tensor components with wave
+    const animTensor = {
+      sxx: comp.sxx * (1 + waveX),
+      syy: comp.syy * (1 + waveY),
+      szz: comp.szz * (1 + waveZ),
+      txy: comp.txy * (1 + (waveX + waveY) * 0.5),
+      txz: comp.txz * (1 + (waveX + waveZ) * 0.5),
+      tyz: comp.tyz * (1 + (waveY + waveZ) * 0.5),
+    };
+
+    const mat = { youngsModulus: E, poissonsRatio: comp.poissonsRatio, density: rho };
+    const def = computeDeformation(animTensor, mat, comp.strainAmplitude, delta);
+
     if (comp.applyToPosition) {
       g.position.set(
-        basePos[0] + def.dispX * wave,
-        basePos[1] + def.dispY * wave,
-        basePos[2] + def.dispZ * wave
+        basePos[0] + def.dispX,
+        basePos[1] + def.dispY,
+        basePos[2] + def.dispZ
       );
     }
     if (comp.applyToRotation) {
       g.rotation.set(
-        (baseRot[0] * Math.PI) / 180 + def.rotX * wave,
-        (baseRot[1] * Math.PI) / 180 + def.rotY * wave,
-        (baseRot[2] * Math.PI) / 180 + def.rotZ * wave
+        (baseRot[0] * Math.PI) / 180 + def.rotX,
+        (baseRot[1] * Math.PI) / 180 + def.rotY,
+        (baseRot[2] * Math.PI) / 180 + def.rotZ
       );
     }
     if (comp.applyToScale) {
       g.scale.set(
-        baseScale[0] * (1 + (def.scaleX - 1) * wave),
-        baseScale[1] * (1 + (def.scaleY - 1) * wave),
-        baseScale[2] * (1 + (def.scaleZ - 1) * wave)
+        baseScale[0] * def.scaleX,
+        baseScale[1] * def.scaleY,
+        baseScale[2] * def.scaleZ
       );
     }
   });
@@ -263,6 +375,11 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
     return (
       <RigidBody
         key={obj.id}
+        ref={(body) => {
+          // Register the Rapier body for stress coupling lookup
+          if (body) rigidBodyRegistry.set(obj.id, body);
+          else rigidBodyRegistry.delete(obj.id);
+        }}
         type={bodyType}
         position={pos}
         rotation={rotRad}
@@ -279,6 +396,9 @@ function PhysicsSceneObject({ obj }: { obj: SceneObject }) {
       >
         <group scale={scl}>{meshEl}</group>
         {collider && <ColliderByShape collider={collider} scale={scl} />}
+        {cauchyStress?.enabled && (
+          <RigidBodyStressWave comp={cauchyStress} basePos={pos} objId={obj.id} />
+        )}
       </RigidBody>
     );
   }
@@ -427,6 +547,124 @@ function SceneLights({ objects }: { objects: Record<string, SceneObject> }) {
 }
 
 // --- Play-mode scene with Rapier Physics ---
+
+// -----------------------------------------------------------------------
+// StressCouplingSystem: Multi-object stress coupling via traction vectors
+//
+// Cauchy's traction theorem: t = sigma * n_hat
+//   t = traction vector (force per unit area) on a surface with normal n_hat
+//   sigma = Cauchy stress tensor of the object applying the traction
+//
+// In play mode, when two objects with CauchyStress components collide:
+//   1. Get the contact normal n_hat from Rapier's narrow phase
+//   2. Compute traction t = sigma * n_hat for each object
+//   3. Apply t as a scaled impulse to the OTHER object's rigid body
+//      (stress from object A acts on object B and vice versa)
+//
+// This simulates how stress waves and contact forces propagate between
+// elastic bodies at their shared interface.
+// -----------------------------------------------------------------------
+function StressCouplingSystem({ objects }: { objects: Record<string, any> }) {
+  const { world } = useRapier(); // used for narrowPhase contact detection
+
+  // Build a map from collider handle -> object id for fast lookup
+  // We rebuild this each frame since handles can change
+  useAfterPhysicsStep(() => {
+    // Find all objects with both rigidbody and cauchyStress components
+    const stressObjects: Array<{ id: string; stress: any }> = [];
+    for (const id of Object.keys(objects)) {
+      const obj = objects[id];
+      if (!obj || !obj.active) continue;
+      if (obj.components.cauchyStress && obj.components.rigidbody) {
+        stressObjects.push({ id, stress: obj.components.cauchyStress });
+      }
+    }
+    if (stressObjects.length < 2) return;
+
+    // For each pair of stress objects, check for contact
+    for (let i = 0; i < stressObjects.length; i++) {
+      for (let j = i + 1; j < stressObjects.length; j++) {
+        const objA = stressObjects[i];
+        const objB = stressObjects[j];
+
+        // Look up rigid bodies from the registry (populated by RigidBody ref callbacks)
+        const bodyA = rigidBodyRegistry.get(objA.id) ?? null;
+        const bodyB = rigidBodyRegistry.get(objB.id) ?? null;
+        if (!bodyA || !bodyB) continue;
+        if (!bodyA.isDynamic() && !bodyB.isDynamic()) continue;
+
+        // Get colliders for each body
+        const numCollidersA = bodyA.numColliders();
+        const numCollidersB = bodyB.numColliders();
+        if (numCollidersA === 0 || numCollidersB === 0) continue;
+
+        // Check contact between first colliders of each body
+        const colliderA = bodyA.collider(0);
+        const colliderB = bodyB.collider(0);
+
+        let hasContact = false;
+        let contactNormal = { x: 0, y: 1, z: 0 }; // default up
+
+        // Use narrowPhase to check contact pair
+        world.narrowPhase.contactPair(
+          colliderA.handle,
+          colliderB.handle,
+          (manifold: any, flipped: boolean) => {
+            if (manifold.numContacts() > 0) {
+              hasContact = true;
+              const n = manifold.normal();
+              contactNormal = flipped
+                ? { x: -n.x, y: -n.y, z: -n.z }
+                : { x: n.x, y: n.y, z: n.z };
+            }
+          }
+        );
+
+        if (!hasContact) continue;
+
+        // Compute traction vectors: t = sigma * n_hat
+        // sigma is the 3x3 stress tensor, n_hat is the contact normal
+        const nx = contactNormal.x;
+        const ny = contactNormal.y;
+        const nz = contactNormal.z;
+
+        const stressA = objA.stress;
+        const stressB = objB.stress;
+
+        // t_A = sigma_A * n_hat (traction from A acting on B)
+        const tAx = stressA.sxx * nx + stressA.txy * ny + stressA.txz * nz;
+        const tAy = stressA.txy * nx + stressA.syy * ny + stressA.tyz * nz;
+        const tAz = stressA.txz * nx + stressA.tyz * ny + stressA.szz * nz;
+
+        // t_B = sigma_B * (-n_hat) (traction from B acting on A, normal reversed)
+        const tBx = stressB.sxx * (-nx) + stressB.txy * (-ny) + stressB.txz * (-nz);
+        const tBy = stressB.txy * (-nx) + stressB.syy * (-ny) + stressB.tyz * (-nz);
+        const tBz = stressB.txz * (-nx) + stressB.tyz * (-ny) + stressB.szz * (-nz);
+
+        // Scale: traction (Pa = N/m2) -> impulse (N*s)
+        // Use a small coupling coefficient to keep simulation stable
+        // Area ~ 1 m2, dt ~ 0.016 s, scale by 1e-9 to keep in reasonable range
+        const couplingScale = 1e-9;
+
+        if (bodyB.isDynamic()) {
+          bodyB.applyImpulse(
+            { x: tAx * couplingScale, y: tAy * couplingScale, z: tAz * couplingScale },
+            true
+          );
+        }
+        if (bodyA.isDynamic()) {
+          bodyA.applyImpulse(
+            { x: tBx * couplingScale, y: tBy * couplingScale, z: tBz * couplingScale },
+            true
+          );
+        }
+      }
+    }
+  });
+
+  return null;
+}
+
 function PhysicsScene({ objects, rootIds }: { objects: Record<string, SceneObject>; rootIds: string[] }) {
   const { physicsGravity, physicsTimestep, showPhysicsDebug, log } = useEngineStore();
   useEffect(() => {
@@ -440,6 +678,7 @@ function PhysicsScene({ objects, rootIds }: { objects: Record<string, SceneObjec
         if (!obj) return null;
         return <PhysicsSceneObject key={id} obj={obj} />;
       })}
+      <StressCouplingSystem objects={objects} />
     </Physics>
   );
 }

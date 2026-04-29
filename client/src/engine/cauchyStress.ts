@@ -331,6 +331,84 @@ export function computeMohrsCircle(t: CauchyTensor): MohrsCircle {
 }
 
 // -----------------------------------------------------------------------
+// Yield ratio: 0 = no stress, 1 = at yield surface, >1 = yielded
+// Supports von Mises, Tresca, and Mohr-Coulomb criteria
+// -----------------------------------------------------------------------
+export type YieldCriterion = 'vonMises' | 'tresca' | 'mohrCoulomb';
+
+export interface YieldResult {
+  ratio: number;           // 0..1+ (1 = at yield surface)
+  effectiveStress: number; // Criterion-specific equivalent stress (Pa)
+  criterion: YieldCriterion;
+  label: string;           // Human-readable criterion name
+  formula: string;         // Formula description
+}
+
+/**
+ * Compute yield ratio for the given criterion.
+ *
+ * von Mises:    sigma_vm = sqrt(3*J2)  -- isotropic ductile metals
+ * Tresca:       tau_max = (s1-s3)/2    -- conservative, used in pressure vessels
+ * Mohr-Coulomb: tau = c + sigma*tan(phi) -- friction-based (soils, concrete)
+ *               simplified as (s1 - s3) / 2 + (s1 + s3) * sin(phi) / 2
+ *               with phi = 30 deg (typical friction angle for concrete)
+ */
+export function computeYieldRatio(
+  t: CauchyTensor,
+  yieldStress: number,
+  criterion: YieldCriterion = 'vonMises'
+): YieldResult {
+  const inv = computeInvariants(t);
+  const ps = computePrincipalStresses(t);
+  const safeYield = Math.max(yieldStress, 1e-6);
+
+  switch (criterion) {
+    case 'vonMises': {
+      const vm = inv.vonMises;
+      return {
+        ratio: vm / safeYield,
+        effectiveStress: vm,
+        criterion,
+        label: 'von Mises',
+        formula: 'sigma_vm = sqrt(3*J2)',
+      };
+    }
+    case 'tresca': {
+      // Tresca: yield when max shear stress = yield stress / 2
+      // i.e. (s1 - s3) >= yieldStress
+      const tresca = ps.s1 - ps.s3; // = 2 * tau_max
+      return {
+        ratio: tresca / safeYield,
+        effectiveStress: tresca,
+        criterion,
+        label: 'Tresca',
+        formula: 'tau_max = (s1-s3)/2',
+      };
+    }
+    case 'mohrCoulomb': {
+      // Mohr-Coulomb: simplified with friction angle phi = 30 deg, cohesion c = yieldStress/2
+      // Failure when: (s1 - s3)/2 + (s1 + s3)/2 * sin(phi) >= c * cos(phi)
+      const phi = Math.PI / 6; // 30 degrees
+      const sinPhi = Math.sin(phi);
+      const cosPhi = Math.cos(phi);
+      const c = safeYield / 2; // cohesion
+      const lhs = (ps.s1 - ps.s3) / 2 + (ps.s1 + ps.s3) / 2 * sinPhi;
+      const rhs = c * cosPhi;
+      const effectiveStress = lhs;
+      return {
+        ratio: rhs > 0 ? lhs / rhs : 0,
+        effectiveStress,
+        criterion,
+        label: 'Mohr-Coulomb',
+        formula: 'tau = c + sigma*tan(phi)',
+      };
+    }
+    default:
+      return { ratio: 0, effectiveStress: 0, criterion, label: 'Unknown', formula: '' };
+  }
+}
+
+// -----------------------------------------------------------------------
 // Von Mises color map: maps stress to RGB color
 // Blue (low) -> Green -> Yellow -> Red (high, near yield)
 // -----------------------------------------------------------------------

@@ -39,6 +39,8 @@ export interface CauchyStressComponent {
   strainAmplitude: number;
   // Yield stress for von Mises color map (Pa)
   yieldStress: number;
+  // Yield criterion: vonMises | tresca | mohrCoulomb
+  yieldCriterion: 'vonMises' | 'tresca' | 'mohrCoulomb';
   // Visualisation flags
   showPrincipalArrows: boolean;
   showVonMisesColor: boolean;
@@ -155,6 +157,7 @@ export function makeDefaultCauchyStress(): CauchyStressComponent {
     density: 7850,
     strainAmplitude: 500,
     yieldStress: 250e6,
+    yieldCriterion: 'vonMises' as const,
     showPrincipalArrows: true,
     showVonMisesColor: true,
     showMohrsCircle: true,
